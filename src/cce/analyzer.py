@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ast
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import tree_sitter_language_pack
+from tree_sitter import Language, Node, Parser
 
 from cce.spec import METRIC_NAMES
 
@@ -14,7 +16,44 @@ _SOURCE_SUFFIXES = {
     ".tsx": "typescript",
 }
 _SKIP_DIRS = {".git", ".hg", ".svn", ".venv", "node_modules", "__pycache__", "cce-out"}
-_TS_BRANCH_RE = re.compile(r"\b(if|for|while|case|catch|switch|\?|&&|\|\|)\b")
+
+_TS_LANGUAGE: Language | None = None
+
+_TS_BRANCH_TYPES = frozenset(
+    {
+        "if_statement",
+        "else_clause",
+        "for_statement",
+        "for_in_statement",
+        "while_statement",
+        "do_statement",
+        "switch_case",
+        "switch_default",
+        "ternary_expression",
+        "catch_clause",
+        "binary_expression",  # filtered to && || ?? below
+    }
+)
+
+_TS_LOGICAL_OPERATORS = frozenset({"&&", "||", "??"})
+
+_TS_FUNCTION_TYPES = frozenset(
+    {
+        "function_declaration",
+        "function_expression",
+        "arrow_function",
+        "method_definition",
+        "generator_function_declaration",
+        "generator_function",
+    }
+)
+
+
+def _ts_language() -> Language:
+    global _TS_LANGUAGE
+    if _TS_LANGUAGE is None:
+        _TS_LANGUAGE = tree_sitter_language_pack.get_language("typescript")
+    return _TS_LANGUAGE
 
 
 @dataclass(frozen=True)
@@ -86,39 +125,101 @@ def _analyse_python(text: str) -> dict[str, int]:
 
 
 def _analyse_typescript(text: str) -> dict[str, int]:
-    lines = text.splitlines()
-    branch_count = sum(len(_TS_BRANCH_RE.findall(line)) for line in lines)
-    max_brace_depth = 0
-    brace_depth = 0
-    for line in lines:
-        brace_depth += line.count("{")
-        max_brace_depth = max(max_brace_depth, brace_depth)
-        brace_depth -= line.count("}")
-        brace_depth = max(brace_depth, 0)
+    if not text.strip():
+        return {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "nesting_depth": 0,
+            "function_length": 0,
+            "file_length": 0,
+        }
+    parser = Parser(_ts_language())
+    tree = parser.parse(text.encode("utf-8"))
 
-    function_lengths = _typescript_function_lengths(lines)
+    function_results: list[dict[str, int]] = []
+    _walk_ts_functions(tree.root_node, function_results, text)
+
+    if not function_results:
+        return {
+            "cyclomatic": 1,
+            "cognitive": 0,
+            "nesting_depth": 0,
+            "function_length": 0,
+            "file_length": 0,
+        }
+
     return {
-        "cyclomatic": branch_count + (1 if lines else 0),
-        "cognitive": branch_count + max_brace_depth,
-        "nesting_depth": max_brace_depth,
-        "function_length": max(function_lengths, default=0),
+        "cyclomatic": max(r["cyclomatic"] for r in function_results),
+        "cognitive": max(r["cognitive"] for r in function_results),
+        "nesting_depth": max(r["nesting_depth"] for r in function_results),
+        "function_length": max(r["function_length"] for r in function_results),
         "file_length": 0,
     }
 
 
-def _typescript_function_lengths(lines: list[str]) -> list[int]:
-    starts = [
-        index
-        for index, line in enumerate(lines, start=1)
-        if "function " in line or "=>" in line
-    ]
-    if not starts:
-        return []
-    lengths: list[int] = []
-    for position, start in enumerate(starts):
-        end = starts[position + 1] - 1 if position + 1 < len(starts) else len(lines)
-        lengths.append(end - start + 1)
-    return lengths
+def _walk_ts_functions(
+    node: Node,
+    results: list[dict[str, int]],
+    source: str,
+) -> None:
+    if node.type in _TS_FUNCTION_TYPES:
+        cyclomatic, cognitive, max_depth = _count_ts_function(node, source)
+        start_line = node.start_point[0] + 1
+        end_line = node.end_point[0] + 1
+        results.append(
+            {
+                "cyclomatic": cyclomatic,
+                "cognitive": cognitive,
+                "nesting_depth": max_depth,
+                "function_length": end_line - start_line + 1,
+            }
+        )
+    for child in node.children:
+        _walk_ts_functions(child, results, source)
+
+
+def _count_ts_function(node: Node, source: str) -> tuple[int, int, int]:
+    cyclomatic = 1
+    cognitive = 0
+    max_depth = 0
+
+    def walk(n: Node, depth: int) -> None:
+        nonlocal cyclomatic, cognitive, max_depth
+        if n.type in _TS_FUNCTION_TYPES and n is not node:
+            return
+        if n.type in _TS_BRANCH_TYPES:
+            if n.type == "binary_expression":
+                op_text = ""
+                for c in n.children:
+                    if not c.is_named or c.type in {"&&", "||", "??"}:
+                        candidate = source[c.start_byte:c.end_byte]
+                        if candidate in _TS_LOGICAL_OPERATORS:
+                            op_text = candidate
+                            break
+                if op_text not in _TS_LOGICAL_OPERATORS:
+                    for child in n.children:
+                        walk(child, depth)
+                    return
+            if n.type == "else_clause":
+                child_types = {c.type for c in n.children}
+                if "if_statement" in child_types:
+                    for child in n.children:
+                        walk(child, depth)
+                    return
+            cyclomatic += 1
+            cognitive += 1 + depth
+            new_depth = depth + 1
+            if max_depth < new_depth:
+                max_depth = new_depth
+            for child in n.children:
+                walk(child, new_depth)
+            return
+        for child in n.children:
+            walk(child, depth)
+
+    for child in node.children:
+        walk(child, 0)
+    return cyclomatic, cognitive, max_depth
 
 
 class _PythonMetricVisitor(ast.NodeVisitor):
