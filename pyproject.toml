@@ -12,8 +12,19 @@ dependencies = [
 [project.scripts]
 cce = "cce.cli:entrypoint"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cce"]
+
+[tool.uv]
+package = true
+
 [dependency-groups]
 dev = [
+    "hatchling",
     "pytest==9.0.3",
     "ruff==0.15.14",
 ]
