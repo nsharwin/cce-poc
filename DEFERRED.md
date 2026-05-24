@@ -4,7 +4,7 @@ This file records POC PRD requirements not completed by the current implementati
 
 ## Analyzer Pinning
 
-- `PREQ-A-1` / `REQ-A-1`: Real `tree-sitter`, `tree-sitter-python`, `tree-sitter-typescript`, `lizard`, and `scc` artifact digest verification is not wired yet. The current code validates sha256 digest shapes only.
+- `PREQ-A-1` / `REQ-A-1` (partial): TypeScript now uses real `tree-sitter-language-pack` grammar. Python keeps using `ast`. `lizard` and `scc` metrics and artifact digest verification are not wired yet — wheel digests are still validated for shape only.
 - `PREQ-A-2` / `REQ-A-2`: Digest-pinned Dockerfile with hash-pinned apt and pip installs is not present yet.
 - `PREQ-A-3` / `REQ-A-3`: Runtime `--network=none` enforcement is not implemented yet.
 - `PREQ-A-4` / `REQ-A-4`: Grammar-stability node-span golden test is not implemented yet.
