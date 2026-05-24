@@ -31,8 +31,69 @@ jobs:
       - name: Install Python
         run: uv python install 3.12
 
+      - name: Install dependencies
+        run: uv sync
+
       - name: Run unit tests
-        run: uv run --python 3.12 pytest -q
+        run: uv run pytest -q
 
       - name: Run PREQ-S-6 determinism gate
-        run: uv run --python 3.12 pytest tests/determinism_100x.py -q
+        run: uv run pytest tests/determinism_100x.py -q
+
+      - name: Init fixture git repo (deterministic)
+        env:
+          GIT_AUTHOR_NAME: CCE Test
+          GIT_AUTHOR_EMAIL: cce@example.test
+          GIT_AUTHOR_DATE: "2026-01-01T00:00:00+0000"
+          GIT_COMMITTER_NAME: CCE Test
+          GIT_COMMITTER_EMAIL: cce@example.test
+          GIT_COMMITTER_DATE: "2026-01-01T00:00:00+0000"
+        run: |
+          cd tests/fixtures/simple_python
+          git init -q --initial-branch=main
+          git config user.email "cce@example.test"
+          git config user.name "CCE Test"
+          git add .
+          git commit -q -m "fixture"
+          echo "Fixture HEAD: $(git rev-parse HEAD)"
+
+      - name: Score fixture repo (PREQ-S-7)
+        run: |
+          mkdir -p cce-out
+          HASH=$(uv run cce score \
+            --spec ./scoring-spec.yaml \
+            --repo ./tests/fixtures/simple_python \
+            --mode repo \
+            --out ./cce-out \
+            --verify-digests false)
+          echo "$HASH" > cce-out/record_hash.txt
+          echo "RECORD_HASH=$HASH" >> "$GITHUB_ENV"
+
+      - name: Upload record hash artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: record-hash-${{ matrix.name }}
+          path: cce-out/record_hash.txt
+
+  compare-hashes:
+    name: Compare record hashes across runners
+    runs-on: ubuntu-24.04
+    needs: deterministic-core
+    steps:
+      - name: Download all hash artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: hash-artifacts
+
+      - name: Assert all hashes match
+        run: |
+          set -euo pipefail
+          echo "=== Collected hashes ==="
+          find hash-artifacts -name "record_hash.txt" -exec sh -c 'echo "$1: $(cat $1)"' _ {} \;
+          UNIQUE=$(find hash-artifacts -name "record_hash.txt" -exec cat {} \; | sort -u | wc -l)
+          echo "Unique hashes: $UNIQUE"
+          if [ "$UNIQUE" -ne 1 ]; then
+            echo "FAIL: runners produced different record hashes"
+            exit 1
+          fi
+          echo "PASS: all runners agree on record hash"
