@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
+from cce.canonical import canonical_json_bytes
 from cce.cli import main
 from tests.sample_data import write_sample_spec
 
@@ -83,6 +85,55 @@ def test_score_cli_writes_record_raw_and_sha256_files(tmp_path: Path, capsys) ->
     assert record["commit_sha"] == commit_sha
     assert record["record_hash"] == stdout
     assert set(raw) == {"files", "summary"}
+
+
+def test_sidecar_files_have_canonical_contents(tmp_path: Path, capsys) -> None:
+    repo, commit_sha = make_fixture_repo(tmp_path)
+    spec_path = tmp_path / "scoring-spec.yaml"
+    out_dir = tmp_path / "cce-out"
+    write_sample_spec(spec_path)
+
+    exit_code = main(
+        [
+            "score",
+            "--spec",
+            str(spec_path),
+            "--repo",
+            str(repo),
+            "--mode",
+            "commit",
+            "--commit",
+            commit_sha,
+            "--out",
+            str(out_dir),
+            "--verify-digests",
+            "false",
+        ]
+    )
+    assert exit_code == 0
+    record_hash = capsys.readouterr().out.strip()
+
+    record_file = out_dir / f"{record_hash}.json"
+    raw_file = out_dir / f"{record_hash}.raw.json"
+    sha_file = out_dir / f"{record_hash}.sha256"
+
+    record_bytes = record_file.read_bytes()
+    raw_bytes = raw_file.read_bytes()
+
+    record = json.loads(record_bytes)
+    raw = json.loads(raw_bytes)
+
+    # (a) record JSON is RFC 8785 canonical bytes
+    assert record_bytes == canonical_json_bytes(record)
+
+    # (b) raw JSON is RFC 8785 canonical bytes, with files[] sorted by path ascending
+    assert raw_bytes == canonical_json_bytes(raw)
+    paths = [entry["path"] for entry in raw["files"]]
+    assert paths == sorted(paths)
+
+    # (c) .sha256 sidecar is exactly "sha256:<hex>\n" of sha256(record_bytes)
+    expected_digest = hashlib.sha256(record_bytes).hexdigest()
+    assert sha_file.read_text(encoding="utf-8") == f"sha256:{expected_digest}\n"
 
 
 def test_verify_cli_accepts_untampered_record(tmp_path: Path, capsys) -> None:
