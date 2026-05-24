@@ -1,0 +1,30 @@
+[project]
+name = "cce-poc"
+version = "0.1.0"
+description = "Proof of concept for deterministic code complexity scoring."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML==6.0.3",
+    "rfc8785==0.1.4",
+]
+
+[project.scripts]
+cce = "cce.cli:entrypoint"
+
+[dependency-groups]
+dev = [
+    "pytest==9.0.3",
+    "ruff==0.15.14",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -1,0 +1,42 @@
+spec_version: 0.1.0
+spec_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+languages:
+  - python
+  - typescript
+weights:
+  cyclomatic: "0.30"
+  cognitive: "0.30"
+  nesting_depth: "0.15"
+  file_length: "0.10"
+  function_length: "0.15"
+normalisation:
+  method: "piecewise_linear_frozen_cuts"
+  cyclomatic:
+    cuts: ["5", "10", "20", "50"]
+    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+  cognitive:
+    cuts: ["5", "15", "30", "60"]
+    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+  nesting_depth:
+    cuts: ["2", "4", "6", "8"]
+    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+  function_length:
+    cuts: ["20", "50", "100", "200"]
+    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+  file_length:
+    cuts: ["100", "300", "600", "1000"]
+    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+rounding:
+  decimal_places: 4
+  mode: ROUND_HALF_EVEN
+pinned_tools:
+  tree_sitter_core: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  grammars:
+    python: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    typescript: "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  lizard: "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  scc: "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+worker_image: "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+git_min_version: "2.50.1"
+canonicalisation: "RFC8785"
+hash_algorithm: "sha256"
