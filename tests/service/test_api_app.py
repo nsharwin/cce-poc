@@ -48,6 +48,7 @@ def test_body_size_limit_allows_small_body() -> None:
 
 def test_metrics_requires_token(monkeypatch):
     monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_ALLOW_HS256", "1")
     monkeypatch.setenv("CCE_METRICS_TOKEN", "s3cret")
     client = _build_test_client()
     assert client.get("/metrics").status_code == 401
@@ -59,6 +60,7 @@ def test_metrics_requires_token(monkeypatch):
 
 def test_metrics_503_without_token_in_prod(monkeypatch):
     monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_ALLOW_HS256", "1")
     monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
     client = _build_test_client()
     assert client.get("/metrics").status_code == 503
@@ -73,6 +75,7 @@ def test_metrics_open_in_development(monkeypatch):
 
 def test_metrics_503_when_env_unset(monkeypatch):
     monkeypatch.delenv("CCE_ENV", raising=False)
+    monkeypatch.setenv("CCE_ALLOW_HS256", "1")
     monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
     client = _build_test_client()
     assert client.get("/metrics").status_code == 503
@@ -80,6 +83,7 @@ def test_metrics_503_when_env_unset(monkeypatch):
 
 def test_metrics_503_when_token_empty_string(monkeypatch):
     monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_ALLOW_HS256", "1")
     monkeypatch.setenv("CCE_METRICS_TOKEN", "   ")
     client = _build_test_client()
     assert client.get("/metrics").status_code == 503

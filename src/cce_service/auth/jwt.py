@@ -74,18 +74,21 @@ def issue_hs256_token(
 
 
 def _warn_if_hs256_in_prod() -> None:
-    env = os.environ.get("CCE_ENV", "development")
-    if env != "development":
-        import logging
-        logging.getLogger("cce_service.auth.jwt").critical(
-            "HS256 JwtVerifier initialised in env=%s — HS256 shared-secret auth "
-            "must not be used in production. Set CCE_REJECT_HS256=1 to refuse startup.",
-            env,
+    env = os.environ.get("CCE_ENV", "").strip().lower()
+    if env == "development":
+        return
+    import logging
+    logger = logging.getLogger("cce_service.auth.jwt")
+    if os.environ.get("CCE_ALLOW_HS256") == "1":
+        logger.critical(
+            "HS256 JwtVerifier active in env=%r via CCE_ALLOW_HS256=1 — "
+            "use JWKS (RS256/ES256) for production traffic.", env or "<unset>",
         )
-    if os.environ.get("CCE_REJECT_HS256") == "1":
-        raise RuntimeError(
-            "HS256 JwtVerifier is not allowed with CCE_REJECT_HS256=1"
-        )
+        return
+    raise RuntimeError(
+        f"HS256 JwtVerifier is not allowed in env={env or '<unset>'!r}. "
+        "Use JwksVerifier (RS256/ES256) or set CCE_ALLOW_HS256=1 explicitly."
+    )
 
 
 class JwtVerifier:

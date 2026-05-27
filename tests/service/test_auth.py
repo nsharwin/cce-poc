@@ -69,10 +69,36 @@ def test_require_scope_rejects_missing() -> None:
         require_scope(p, Scope.SCORE_WRITE)
 
 
-def test_hs256_rejected_when_ccereject_hs256_set(monkeypatch) -> None:
-    monkeypatch.setenv("CCE_REJECT_HS256", "1")
-    with pytest.raises(RuntimeError, match="CCE_REJECT_HS256"):
-        JwtVerifier(secret=SECRET)
+def test_hs256_refuses_init_in_production(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.delenv("CCE_ALLOW_HS256", raising=False)
+    from cce_service.auth.jwt import JwtVerifier
+    with pytest.raises(RuntimeError, match="HS256"):
+        JwtVerifier(secret="dev")
+
+
+def test_hs256_refuses_when_env_unset(monkeypatch):
+    monkeypatch.delenv("CCE_ENV", raising=False)
+    monkeypatch.delenv("CCE_ALLOW_HS256", raising=False)
+    from cce_service.auth.jwt import JwtVerifier
+    with pytest.raises(RuntimeError, match="HS256"):
+        JwtVerifier(secret="dev")
+
+
+def test_hs256_allowed_with_override(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_ALLOW_HS256", "1")
+    from cce_service.auth.jwt import JwtVerifier
+    v = JwtVerifier(secret="dev")
+    assert isinstance(v, JwtVerifier)
+
+
+def test_hs256_allowed_in_development(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "development")
+    monkeypatch.delenv("CCE_ALLOW_HS256", raising=False)
+    from cce_service.auth.jwt import JwtVerifier
+    v = JwtVerifier(secret="dev")
+    assert isinstance(v, JwtVerifier)
 
 
 def test_jwks_verifier_refuses_init_without_crypto_outside_dev(monkeypatch):
