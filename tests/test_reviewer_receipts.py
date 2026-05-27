@@ -24,7 +24,10 @@ DEFERRED = REPO_ROOT / "DEFERRED.md"
 RECEIPT_NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[A-Za-z0-9_-]+\.txt$")
 RECORD_HASH_RE = re.compile(r"^record_hash\s*=\s*(sha256:[0-9a-f]{64})\s*$", re.MULTILINE)
 HEADER_KEYS = ("Reviewer", "Date", "Repo", "Commit", "Image", "Host OS", "Fixture")
-HEADER_RE = {key: re.compile(rf"^#\s*{re.escape(key)}:\s*(.+)$", re.MULTILINE) for key in HEADER_KEYS}
+HEADER_RE = {
+    key: re.compile(rf"^#\s*{re.escape(key)}:\s*(.+)$", re.MULTILINE)
+    for key in HEADER_KEYS
+}
 
 
 def _receipts() -> list[Path]:

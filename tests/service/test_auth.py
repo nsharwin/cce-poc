@@ -12,8 +12,12 @@ from cce_service.auth.jwt import Principal
 SECRET = "test-secret-do-not-use-in-prod"
 
 
-def _token(scopes: list[str] = ["score:write"], **overrides: object) -> str:
-    return issue_hs256_token(secret=SECRET, subject="alice", tenant="t1", scopes=scopes, **overrides)
+def _token(scopes: list[str] | None = None, **overrides: object) -> str:
+    if scopes is None:
+        scopes = ["score:write"]
+    return issue_hs256_token(
+        secret=SECRET, subject="alice", tenant="t1", scopes=scopes, **overrides
+    )
 
 
 def test_verifier_accepts_valid_token() -> None:

@@ -758,7 +758,10 @@ def test_property_3_init_otel_selection_purity(
             return True
 
     class _SpyOTLPSpanExporter:
-        """Spy replacement for ``opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter``."""
+        """Spy replacement for OTLPSpanExporter.
+
+        Replaces ``opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter``.
+        """
 
         def __init__(self, **kwargs: Any) -> None:
             recorded.append((_SpyOTLPSpanExporter, dict(kwargs)))

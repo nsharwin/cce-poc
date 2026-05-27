@@ -67,5 +67,6 @@ def test_grammar_spans_match_golden(name: str, language: str, source: str) -> No
         f"  fixture: {source_path}\n"
         f"  golden : {golden_path}\n"
         f"  spans  : {len(spans)} (actual) vs golden size {len(expected_bytes)} bytes\n"
-        "  to regenerate: CCE_UPDATE_GRAMMAR_GOLDENS=1 uv run pytest tests/test_grammar_stability.py"
+        "  to regenerate: CCE_UPDATE_GRAMMAR_GOLDENS=1 uv run pytest "
+        "tests/test_grammar_stability.py"
     )

@@ -76,3 +76,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_otel.py" = ["E402"]
+"tests/test_otel_properties.py" = ["E402"]
+"tests/test_workflow_matrix.py" = ["E402"]

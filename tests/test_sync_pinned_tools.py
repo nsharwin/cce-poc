@@ -73,7 +73,11 @@ def _stage_workspace(
 
 # Feature: poc-readiness-hard-blockers, Property 1: sync_pinned_tools.py is idempotent
 # Validates: Requirements 1.2, 1.3
-@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 @given(
     lizard=_sha256_digest,
     scc=_sha256_digest,
@@ -119,7 +123,11 @@ def test_sync_pinned_tools_is_idempotent(
 
 # Feature: poc-readiness-hard-blockers, Property 2: spec_hash round-trips
 # Validates: Requirements 1.2, 1.3
-@settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+@settings(
+    max_examples=100,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 @given(
     lizard=_sha256_digest,
     scc=_sha256_digest,
