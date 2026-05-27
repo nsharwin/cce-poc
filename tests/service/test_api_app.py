@@ -69,3 +69,17 @@ def test_metrics_open_in_development(monkeypatch):
     monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
     client = _build_test_client()
     assert client.get("/metrics").status_code == 200
+
+
+def test_metrics_503_when_env_unset(monkeypatch):
+    monkeypatch.delenv("CCE_ENV", raising=False)
+    monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
+    client = _build_test_client()
+    assert client.get("/metrics").status_code == 503
+
+
+def test_metrics_503_when_token_empty_string(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_METRICS_TOKEN", "   ")
+    client = _build_test_client()
+    assert client.get("/metrics").status_code == 503

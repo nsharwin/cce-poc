@@ -196,10 +196,17 @@ def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
         from fastapi import Response
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-        expected = os.environ.get("CCE_METRICS_TOKEN")
-        env = os.environ.get("CCE_ENV", "development")
+        # Treat empty/whitespace-only token as unset so an operator who
+        # accidentally configures CCE_METRICS_TOKEN="" cannot silently open
+        # the endpoint.
+        expected = (os.environ.get("CCE_METRICS_TOKEN") or "").strip()
+        # Require CCE_ENV to be explicitly "development" for the open bypass.
+        # Unset, empty, or any unrecognized value is treated as non-dev so a
+        # forgotten Helm/env value cannot expose /metrics in production.
+        env = os.environ.get("CCE_ENV", "").strip().lower()
+        is_dev = env == "development"
         if not expected:
-            if env != "development":
+            if not is_dev:
                 raise HTTPException(status_code=503, detail="metrics endpoint not configured")
         else:
             provided = ""
