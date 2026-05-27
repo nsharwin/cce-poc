@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Iterator
@@ -28,6 +29,12 @@ _HARDENED_GIT_FLAGS: tuple[str, ...] = (
     "submodule.recurse=false",
 )
 
+# Defense-in-depth: validate inputs before any subprocess call. The API
+# validator already restricts repo_url/commit, but ``prepared_repo`` is also
+# reachable from the CLI and tests where these values are unchecked.
+_COMMIT_RE = re.compile(r"^[0-9a-f]{7,64}$")
+_SUPPORTED_REPO_SCHEMES = ("https://", "http://", "git://", "ssh://")
+
 
 @contextmanager
 def prepared_repo(
@@ -38,6 +45,12 @@ def prepared_repo(
 ) -> Iterator[tuple[Path, str]]:
     if git_min_version is not None:
         _assert_git_min_version(git_min_version)
+
+    if commit is not None and not _COMMIT_RE.match(commit):
+        raise GitSafetyError(f"invalid commit ref: {commit!r}")
+
+    if not (repo.startswith(_SUPPORTED_REPO_SCHEMES) or Path(repo).exists()):
+        raise GitSafetyError(f"unsupported repo: {repo!r}")
 
     repo_path = Path(repo)
     if repo_path.exists():
@@ -59,6 +72,7 @@ def prepared_repo(
             "--depth=1",
             "--filter=blob:none",
             "--no-checkout",
+            "--",
             repo,
             str(clone_path),
             timeout=300,

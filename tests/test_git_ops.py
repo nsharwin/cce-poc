@@ -121,3 +121,41 @@ def test_local_mode_accepts_internal_symlink(tmp_path: Path) -> None:
     with prepared_repo(str(repo), "commit", sha) as (path, resolved):
         assert resolved == sha
         assert path == repo
+
+
+# -- Input validation: commit ref and repo scheme ------------------------------
+
+
+def test_prepared_repo_rejects_option_like_commit_ref():
+    """A commit ref that looks like a git option must be rejected before any
+    subprocess call. Defense-in-depth against CLI callers that bypass the API
+    validator."""
+    with pytest.raises(GitSafetyError, match="invalid commit"):
+        with prepared_repo(
+            repo="https://example.invalid/repo.git",
+            mode="commit",
+            commit="--upload-pack=touch /tmp/pwned",
+        ):
+            pass
+
+
+def test_prepared_repo_rejects_non_hex_commit():
+    with pytest.raises(GitSafetyError, match="invalid commit"):
+        with prepared_repo(
+            repo="https://example.invalid/repo.git",
+            mode="commit",
+            commit="HEAD~1",
+        ):
+            pass
+
+
+def test_prepared_repo_rejects_unsupported_repo_scheme():
+    """Repo strings that are neither a supported scheme nor an existing local
+    path must be rejected."""
+    with pytest.raises(GitSafetyError, match="unsupported repo"):
+        with prepared_repo(
+            repo="ext::sh -c whoami",
+            mode="commit",
+            commit="a" * 40,
+        ):
+            pass
