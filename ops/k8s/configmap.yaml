@@ -13,4 +13,4 @@ data:
   CCE_API_PORT: "8080"
   CCE_ENV: "production"
   CCE_LOG_FORMAT: "json"
-  CCE_JAOKER_CONFIG: "/opt/cce/ops/firecracker/jailer.json"
+  CCE_JAILER_CONFIG: "/opt/cce/ops/firecracker/jailer.json"
