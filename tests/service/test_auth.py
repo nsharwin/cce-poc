@@ -73,3 +73,32 @@ def test_hs256_rejected_when_ccereject_hs256_set(monkeypatch) -> None:
     monkeypatch.setenv("CCE_REJECT_HS256", "1")
     with pytest.raises(RuntimeError, match="CCE_REJECT_HS256"):
         JwtVerifier(secret=SECRET)
+
+
+def test_jwks_verifier_refuses_init_without_crypto_outside_dev(monkeypatch):
+    """JwksVerifier MUST refuse to construct unless CCE_ENV=development when
+    the cryptography library is unavailable. Hash-only mode is no longer a
+    silent fallback."""
+    import cce_service.auth.jwks as jwks_mod
+    monkeypatch.setattr(jwks_mod, "_HAS_CRYPTO", False)
+    monkeypatch.setenv("CCE_ENV", "production")
+    with pytest.raises(RuntimeError, match="cryptography"):
+        jwks_mod.JwksVerifier(
+            jwks_uri="https://example.invalid/jwks.json",
+            issuer="iss", audience="aud",
+        )
+
+
+def test_jwks_verifier_allows_dev_without_crypto(monkeypatch):
+    """In CCE_ENV=development the verifier may start without crypto for local
+    fixtures, but signature verification must hard-fail."""
+    import cce_service.auth.jwks as jwks_mod
+    monkeypatch.setattr(jwks_mod, "_HAS_CRYPTO", False)
+    monkeypatch.setenv("CCE_ENV", "development")
+    v = jwks_mod.JwksVerifier(
+        jwks_uri="https://example.invalid/jwks.json",
+        issuer="iss", audience="aud",
+    )
+    # Signature verification must raise AuthError, not silently return.
+    with pytest.raises(jwks_mod.AuthError, match="signature verification unavailable"):
+        jwks_mod._verify_rs256(b"x.y", b"sig", {"e": "AQAB", "n": "AA"})

@@ -4,15 +4,13 @@ Production deployments configure ``CCE_JWKS_URI`` to point at an
 external IdP (Auth0, Okta, etc.). The verifier fetches the public keys
 on first use, caches them by TTL, and validates RS256/ES256 signatures.
 
-For full RSA/EC signature verification, ``cryptography`` (or
-``PyJWT[crypto]``) must be installed. Without it, this module falls
-back to a **hash-only integrity check** that validates the token
-structure and JWK lookup but does *not* cryptographically verify the
-signature. This is safe for local/staging environments where network
-policy already prevents malicious token injection, but **not for
-production**. The ``_warn_missing_crypto()`` guard logs a CRITICAL
-warning (and optionally refuses startup with
-``CCE_REQUIRE_CRYPTO=1``) when the crypto library is absent.
+The ``cryptography`` library (or ``PyJWT[crypto]``) is **required** for
+RS256/ES256 signature verification. If it is not installed, the
+verifier refuses to construct outside of ``CCE_ENV=development`` and
+all calls to ``_verify_rs256`` / ``_verify_es256`` raise
+:class:`AuthError`. There is no silent hash-only fallback: forged
+tokens cannot pass through an unverified signature path. The
+``_warn_missing_crypto()`` guard enforces this default-deny posture.
 
 The public surface (:class:`Principal`, ``verify(token) -> Principal``)
 is identical to :class:`cce_service.auth.jwt.JwtVerifier`, so the
@@ -54,20 +52,13 @@ def _warn_missing_crypto() -> None:
         return
     env = os.environ.get("CCE_ENV", "development")
     _logger.critical(
-        "cryptography library not installed — JWKS verifier will perform "
-        "hash-only integrity checks, NOT cryptographic signature verification. "
-        "This is unsafe for production. Install 'cryptography' or "
-        "'PyJWT[crypto]' and set CCE_ENV=production.",
+        "cryptography library not installed — JWKS signature verification "
+        "is unavailable. Install 'cryptography' or 'PyJWT[crypto]'.",
     )
-    if env != "development":
-        _logger.critical(
-            "JWKS verifier in env=%s without cryptography — tokens are not "
-            "cryptographically verified!",
-            env,
-        )
-    if os.environ.get("CCE_REQUIRE_CRYPTO") == "1":
+    if env != "development" and os.environ.get("CCE_ALLOW_HASH_ONLY_JWKS") != "1":
         raise RuntimeError(
-            "cryptography library is required with CCE_REQUIRE_CRYPTO=1"
+            f"JwksVerifier refused to start in env={env!r} without the "
+            "cryptography library. Install it or set CCE_ENV=development."
         )
 
 
@@ -142,7 +133,7 @@ class _JwksCache:
 
 def _verify_rs256(signing_input: bytes, signature: bytes, jwk: dict[str, object]) -> None:
     if not _HAS_CRYPTO:
-        return  # hash-only mode — caller already warned
+        raise AuthError("signature verification unavailable: cryptography not installed")
     e_bytes = _b64url_decode(str(jwk["e"]))
     n_bytes = _b64url_decode(str(jwk["n"]))
     e_int = int.from_bytes(e_bytes, "big")
@@ -161,7 +152,7 @@ def _verify_rs256(signing_input: bytes, signature: bytes, jwk: dict[str, object]
 
 def _verify_es256(signing_input: bytes, signature: bytes, jwk: dict[str, object]) -> None:
     if not _HAS_CRYPTO:
-        return  # hash-only mode — caller already warned
+        raise AuthError("signature verification unavailable: cryptography not installed")
     x_bytes = _b64url_decode(str(jwk["x"]))
     y_bytes = _b64url_decode(str(jwk["y"]))
     x_int = int.from_bytes(x_bytes, "big")
