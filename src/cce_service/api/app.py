@@ -8,7 +8,10 @@ every handler just forwards to ``ScoreService`` and translates
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+_body_limit_logger = logging.getLogger("cce_service.api.body_limit")
 
 try:  # pragma: no cover - optional FastAPI dependency
     from fastapi import FastAPI, Header, HTTPException, Request
@@ -146,8 +149,17 @@ def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
 
             try:
                 await self.app(scope, limited_receive, guarded_send)
-            except Exception:
-                if too_large and not response_started:
+            except Exception as exc:
+                # Only swallow when the request was already over-limit;
+                # otherwise re-raise so genuine bugs aren't masked.
+                if not too_large:
+                    raise
+                _body_limit_logger.warning(
+                    "body-limit middleware swallowed inner exception: %s",
+                    exc,
+                    exc_info=True,
+                )
+                if not response_started:
                     await _send_json(
                         send,
                         status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -159,7 +171,6 @@ def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
                         },
                     )
                     return
-                raise
             if too_large and not response_started:
                 await _send_json(
                     send,
