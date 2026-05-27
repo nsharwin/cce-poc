@@ -1,34 +1,24 @@
-# CCE POC — Deterministic Code Complexity Engine
+# CCE — Deterministic Code Complexity Engine
 
 > A credit score for your code — the same commit always gets the same score, on any machine.
 
 ## What is this?
 
-CCE gives your code a **complexity score** — a single number that tells you
-how hard your codebase is to understand and maintain. A lower score means
-cleaner, simpler code.
+CCE gives your code a **complexity score** — a single number that tells you how hard your codebase is to understand and maintain. A lower score means cleaner, simpler code.
 
-**What makes it different:** most code-quality tools give different answers
-on different machines, or change their mind between runs. CCE guarantees the
-exact same score for the exact same code, every time, on any computer. This
-means you can:
+**What makes it different:** most code-quality tools give different answers on different machines, or change their mind between runs. CCE guarantees the exact same score for the exact same code, every time, on any computer. This means you can:
 
 - **Trust the score** — it can't be manipulated or fudged.
 - **Compare fairly** — two teams scoring the same commit get the same result.
-- **Audit with confidence** — regulators or reviewers can reproduce the score
-  themselves and get the identical answer.
+- **Audit with confidence** — regulators or reviewers can reproduce the score themselves and get the identical answer.
 - **Track over time** — if the score changes, your code changed. Nothing else.
 
-In practice, CCE analyzes a repo, measures five complexity dimensions
-(cyclomatic, cognitive, nesting depth, function length, file length), and
-produces a report with a cryptographic fingerprint that proves the result
-hasn't been tampered with.
+CCE analyzes a repo, measures five complexity dimensions (cyclomatic, cognitive, nesting depth, function length, file length), and produces a report with a cryptographic fingerprint that proves the result hasn't been tampered with.
 
 ---
 
 ## Table of Contents
 
-- [What is this?](#what-is-this)
 - [Sample Scores](#sample-scores)
 - [Features](#features)
 - [Architecture](#architecture)
@@ -42,18 +32,15 @@ hasn't been tampered with.
 - [Development](#development)
 - [Testing](#testing)
 - [Production Service](#production-service)
-- [Operations](#operations)
-- [CI Gates](#ci-gates)
-- [Roadmap & Boundaries](#roadmap--boundaries)
+- [CI](#ci)
+- [Roadmap](#roadmap)
 - [License](#license)
 
 ---
 
 ## Sample Scores
 
-Scores range from 0 (minimal complexity) to 1 (maximum complexity per the
-spec's normalisation cuts). Here's how popular open-source Python projects
-stack up as of May 2026:
+Scores range from 0 (minimal complexity) to 1 (maximum complexity). Here's how popular open-source Python projects stack up as of May 2026:
 
 | Project | Score | Files Analyzed | Key Insight |
 |---------|-------|----------------|-------------|
@@ -72,33 +59,21 @@ stack up as of May 2026:
 
 </details>
 
-> **Each score is deterministic** — running `cce score` against the same
-> commit on Linux, macOS, or ARM64 produces the identical `record_hash`.
-> You can verify this yourself by cloning any of these repos and running
-> `cce score --spec scoring-spec.yaml --repo <path> --mode repo`.
+> **Each score is deterministic** — running `cce score` against the same commit on Linux, macOS, or ARM64 produces the identical `record_hash`. You can verify this yourself by cloning any of these repos and running `cce score --spec scoring-spec.yaml --repo <path> --mode repo`.
 
 ---
 
 ## Features
 
-- **Deterministic scoring core** — pure functions, no I/O, no clocks, no
-  randomness, no environment reads (`PREQ-S-1`).
-- **Decimal arithmetic** — `decimal.Decimal` with precision 28 and
-  `ROUND_HALF_EVEN` (`PREQ-S-2`).
-- **Canonical JSON** — RFC 8785 (JCS) via the pinned `rfc8785` package
-  (`PREQ-S-3`).
-- **Stable record hash** —
-  `sha256(spec_hash ‖ commit_sha ‖ canonical_metrics_json ‖ tool_digests_json)`
-  (`PREQ-S-4`).
-- **Frozen normalisation cuts** — defined in `scoring-spec.yaml` (`PREQ-S-5`).
-- **100× determinism gate** — `tests/determinism_100x.py` asserts 100
-  sequential runs collapse to one hash (`PREQ-S-6`).
-- **GNU-compatible sidecars** — `<record_hash>.sha256` is plain
-  `sha256sum -c` format (`PREQ-D-3`).
-- **Network-isolated reproduction** — runs cleanly under `--network=none`
-  with `CCE_REQUIRE_NETWORK_ISOLATED=1` (`PREQ-X-3`).
-- **Hostile-input hardening** — submodule traps, symlink escapes, and
-  `protocol.file` are rejected (`PREQ-X-2`, `POC-GATE-6`).
+- **Deterministic scoring** — pure functions, no I/O, no clocks, no randomness, no hidden environment reads.
+- **Decimal arithmetic** — uses `decimal.Decimal` with precision 28 and `ROUND_HALF_EVEN` to avoid floating-point drift.
+- **Canonical JSON** — RFC 8785 (JCS) serialization ensures byte-identical output across platforms.
+- **Tamper-evident record hash** — `sha256(spec_hash ‖ commit_sha ‖ canonical_metrics_json ‖ tool_digests_json)` ties the score to the exact spec and inputs.
+- **Frozen normalisation cuts** — defined in `scoring-spec.yaml` so scores don't silently shift between releases.
+- **100× determinism gate** — automated test asserts 100 sequential runs collapse to one hash.
+- **GNU-compatible sidecars** — the `.sha256` sidecar works with stock `sha256sum -c`.
+- **Network-isolated reproduction** — runs cleanly under `--network=none` for air-gapped verification.
+- **Hostile-input hardening** — submodule traps, symlink escapes, and `protocol.file` are rejected.
 
 ## Architecture
 
@@ -112,23 +87,20 @@ flowchart LR
     F -->|dispatch| G[Firecracker worker]
 ```
 
-The core pipeline is **`prepared_repo → analyze → score → write_outputs`**,
-emitted as OpenTelemetry spans (`src/cce/otel.py`). Each stage is independently
-unit-tested and free of hidden global state.
+The core pipeline is **`prepared_repo → analyze → score → write_outputs`**, emitted as OpenTelemetry spans. Each stage is independently unit-tested and free of hidden global state.
 
 ## Requirements
 
-| Tool      | Version           | Notes                                             |
-|-----------|-------------------|---------------------------------------------------|
-| Python    | `>= 3.12`         | Pinned in `pyproject.toml`.                       |
-| uv        | latest            | Used for env + lockfile management.               |
-| git       | `>= 2.50.1`       | Enforced at runtime (`scoring-spec.yaml`).        |
-| Docker    | any recent        | For reproducible / network-isolated runs.         |
+| Tool   | Version     | Notes                                          |
+|--------|-------------|------------------------------------------------|
+| Python | `>= 3.12`   | Pinned in `pyproject.toml`.                    |
+| uv     | latest      | Used for env + lockfile management.            |
+| git    | `>= 2.50.1` | Enforced at runtime via `scoring-spec.yaml`.   |
+| Docker | any recent  | Required for reproducible / network-isolated runs. |
 
 ## Installation
 
 ```bash
-# Clone
 git clone https://github.com/nsharwin/cce-poc.git
 cd cce-poc
 
@@ -154,7 +126,7 @@ cd cce-out && sha256sum -c <record_hash>.sha256
 
 ## CLI Usage
 
-The CLI is installed as the `cce` console script (entry point: `cce.cli:entrypoint`).
+The CLI is installed as the `cce` console script.
 
 ### `cce score`
 
@@ -179,13 +151,13 @@ uv run cce score \
 
 Outputs written under `./cce-out/`:
 
-| File                          | Contents                                              |
-|-------------------------------|-------------------------------------------------------|
-| `<record_hash>.json`          | Canonical scoring record (RFC 8785).                  |
-| `<record_hash>.raw.json`      | Raw analyzer output (canonical bytes).                |
-| `<record_hash>.sha256`        | GNU coreutils sidecar — works with `sha256sum -c`.    |
+| File                     | Contents                                           |
+|--------------------------|----------------------------------------------------|
+| `<record_hash>.json`     | Canonical scoring record (RFC 8785).               |
+| `<record_hash>.raw.json` | Raw analyzer output (canonical bytes).             |
+| `<record_hash>.sha256`   | GNU coreutils sidecar — works with `sha256sum -c`. |
 
-Stage timings are printed on **stderr** (`PREQ-O-2`).
+Stage timings are printed on **stderr**.
 
 ### `cce verify`
 
@@ -195,32 +167,27 @@ Recompute and check a record hash from its JSON:
 uv run cce verify --record ./cce-out/<record_hash>.json
 ```
 
-Verify via the sidecar (accepts both the new GNU and legacy `sha256:<hex>`
-formats):
+Verify via the sidecar:
 
 ```bash
 uv run cce verify --sidecar ./cce-out/<record_hash>.sha256
 ```
 
-> **Note:** `sha256sum -c` resolves filenames relative to the current
-> directory, so `cd cce-out` first. `cce verify --sidecar <path>` has no
-> such requirement.
+> **Note:** `sha256sum -c` resolves filenames relative to the current directory, so `cd cce-out` first. `cce verify --sidecar <path>` has no such requirement.
 
 ## Reproducible Container
 
-The repo ships a **digest-pinned** `Dockerfile`
-(`python:3.12-slim-bookworm@sha256:93ab4b7f…`) satisfying `PREQ-A-2`,
-`PREQ-A-3`, and `PREQ-X-1` (`git >= 2.50.1` from `bookworm-backports`).
+The repo ships a digest-pinned `Dockerfile` that enforces a specific base image, ensuring builds are bit-for-bit reproducible.
 
 ```bash
-docker build -t cce-poc:local .
+docker build -t cce:local .
 
 docker run --rm \
   --network=none \
   -e CCE_REQUIRE_NETWORK_ISOLATED=1 \
   -v "$PWD:/work:ro" \
   -v "$PWD/cce-out:/work/cce-out" \
-  cce-poc:local \
+  cce:local \
   score --spec /work/scoring-spec.yaml \
         --repo /work/tests/fixtures/simple_python \
         --mode repo \
@@ -234,29 +201,28 @@ To regenerate the base image digest after a Debian point release:
 docker buildx imagetools inspect python:3.12-slim-bookworm
 ```
 
-Then update **both** `Dockerfile` and `scoring-spec.yaml::worker_image`
-atomically in one commit.
+Then update **both** `Dockerfile` and `scoring-spec.yaml::worker_image` atomically in one commit.
 
 ## Configuration
 
 All knobs live in `scoring-spec.yaml`:
 
-- `weights` — per-metric blend weights.
-- `normalisation` — piecewise-linear frozen cuts (cyclomatic, cognitive,
-  nesting depth, function length, file length).
-- `rounding` — `decimal_places=4`, `mode=ROUND_HALF_EVEN`.
-- `pinned_tools` — sha256 digests for `tree_sitter_core`, grammars,
-  `lizard`, `scc`.
-- `worker_image` — pinned base image digest.
-- `git_min_version` — minimum git version enforced at runtime.
-- `canonicalisation` — `RFC8785`.
-- `hash_algorithm` — `sha256`.
+| Key | Description |
+|-----|-------------|
+| `weights` | Per-metric blend weights. |
+| `normalisation` | Piecewise-linear frozen cuts for all five metrics. |
+| `rounding` | `decimal_places=4`, `mode=ROUND_HALF_EVEN`. |
+| `pinned_tools` | SHA-256 digests for `tree_sitter_core`, grammars, `lizard`, `scc`. |
+| `worker_image` | Pinned base image digest for Docker runs. |
+| `git_min_version` | Minimum git version enforced at runtime. |
+| `canonicalisation` | `RFC8785`. |
+| `hash_algorithm` | `sha256`. |
 
-Environment variables consumed by the CLI/runtime:
+Environment variables:
 
-| Variable                          | Effect                                                  |
-|-----------------------------------|---------------------------------------------------------|
-| `CCE_REQUIRE_NETWORK_ISOLATED=1`  | Hard-fail if any outbound network is reachable.         |
+| Variable | Effect |
+|----------|--------|
+| `CCE_REQUIRE_NETWORK_ISOLATED=1` | Hard-fail if any outbound network is reachable. |
 
 ## Project Layout
 
@@ -269,10 +235,10 @@ Environment variables consumed by the CLI/runtime:
 │   │   ├── canonical.py     # RFC 8785 helpers
 │   │   ├── cli.py           # `cce` entrypoint
 │   │   ├── git_ops.py       # Hardened git wrappers
-│   │   ├── otel.py          # Stage spans + Prometheus metrics
+│   │   ├── otel.py          # OpenTelemetry spans + Prometheus metrics
 │   │   ├── runtime.py
 │   │   ├── scoring.py       # Decimal-only scoring math
-│   │   └── spec.py          # `scoring-spec.yaml` loader
+│   │   └── spec.py          # scoring-spec.yaml loader
 │   └── cce_service/         # Optional REST service (FastAPI)
 │       ├── api/             # HTTP routes
 │       ├── auth/            # OAuth2 client-credentials JWT
@@ -281,15 +247,13 @@ Environment variables consumed by the CLI/runtime:
 │       ├── workers/         # Queue consumers
 │       └── migrations/      # Alembic migrations
 ├── tests/                   # pytest suite + determinism gate + fixtures
-├── docs/                    # PRD, plans, reproductions
-├── ops/                     # SLOs, runbooks, observability, firecracker
-├── scripts/                 # Maintenance helpers (digests, grammars)
+├── ops/                     # SLOs, runbooks, observability config
+├── scripts/                 # Maintenance helpers
 ├── scoring-spec.yaml        # Frozen scoring spec
 ├── Dockerfile               # Digest-pinned reproducible image
 ├── pyproject.toml           # Project + tooling config
 ├── requirements.lock.txt    # Hash-checked lockfile
-├── alembic.ini              # Migrations config (service)
-└── DEFERRED.md              # Tracked gaps vs full PRD
+└── REPRODUCING.md           # Protocol for independent hash verification
 ```
 
 ## Development
@@ -305,8 +269,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Source layout is `src/`-based with `pythonpath = ["src"]` configured in
-`pyproject.toml`.
+Source layout is `src/`-based with `pythonpath = ["src"]` configured in `pyproject.toml`.
 
 ## Testing
 
@@ -314,71 +277,49 @@ Source layout is `src/`-based with `pythonpath = ["src"]` configured in
 # Full unit + integration suite
 uv run pytest -q
 
-# 100× determinism gate (PREQ-S-6)
+# 100× determinism gate
 uv run pytest tests/determinism_100x.py -q
 ```
 
-The suite covers: scoring core, analyzer digests, CLI sidecars, git
-hardening, submodule traps, runtime checks, perf budgets, and the
-optional service layer (`tests/service/`).
+The suite covers scoring core, analyzer digests, CLI sidecars, git hardening, submodule traps, runtime checks, perf budgets, and the optional service layer (`tests/service/`).
 
 ## Production Service
 
-`src/cce_service/` wraps the deterministic core as a production-grade
-REST API. Heavy dependencies (FastAPI, Postgres, ClickHouse, Redis,
-Firecracker) are imported lazily so the **core remains testable without
-infra**.
+`src/cce_service/` wraps the deterministic core as a REST API. Heavy dependencies (FastAPI, Postgres, ClickHouse, Redis, Firecracker) are imported lazily so the **core remains testable without infra**.
 
-- **API** (`src/cce_service/api/`):
-  - `POST /v1/scores`
-  - `GET  /v1/scores/{job_id}`
-  - `GET  /v1/records/{record_hash}`
-  - `GET  /v1/audit?since=...`
-  - `/healthz`, `/metrics`
-- **AuthN/Z** (`src/cce_service/auth/`): OAuth2 client-credentials JWT
-  with scopes `score:write`, `records:read`, `audit:read`.
-- **Storage** (`src/cce_service/storage/`): Postgres for jobs/audit
-  (`REQ-D-5`), ClickHouse for records (`REQ-D-2`), in-memory adapters
-  for tests.
-- **Worker pool** (`src/cce_service/{workers,dispatch}/`): queue
-  consumer → Firecracker dispatcher with a no-network rootfs
-  (`PREQ-X-4`).
-- **Observability** (`src/cce/otel.py`): OpenTelemetry spans per stage
-  + Prometheus counters/histograms.
+**Endpoints:**
 
-## Operations
+```
+POST /v1/scores               Submit a repo for scoring
+GET  /v1/scores/{job_id}      Poll job status
+GET  /v1/records/{record_hash} Fetch a completed scoring record
+GET  /v1/audit?since=...       Audit log
+GET  /healthz                  Health check
+GET  /metrics                  Prometheus metrics
+```
 
-Operational artifacts under `ops/`:
+**Auth:** OAuth2 client-credentials JWT with scopes `score:write`, `records:read`, `audit:read`.
 
-- `ops/slo.md` — availability, score-latency, record-read, determinism,
-  isolation SLOs with Prometheus SLIs.
-- `ops/rollback.md` — blue/green digest-pinned rollback procedure.
-- `ops/runbooks/` — `api-5xx`, `worker-stuck`, `clickhouse-lag`,
-  `hash-mismatch`, `firecracker-boot-fail`.
-- `ops/observability/` — Alertmanager rules, Grafana dashboard, OTel
-  collector config.
-- `ops/firecracker/` — `jailer.json`, `kernel.config`, `rootfs.build.sh`.
-- `ops/nightly-streak.json` — 7-day green-streak tracker for
-  `nightly-stability.yml` (`POC-GATE-3`).
+**Storage:** Postgres for jobs and audit log, ClickHouse for scoring records, in-memory adapters for tests.
 
-## CI Gates
+**Workers:** Queue consumer → Firecracker dispatcher with a no-network rootfs for isolated scoring.
 
-GitHub Actions workflows enforce reproducibility and budgets:
+**Observability:** OpenTelemetry spans per pipeline stage + Prometheus counters/histograms.
 
-- `.github/workflows/poc-determinism.yml` — matrix hash-compare across
-  Ubuntu x86_64 + arm64 + macOS arm64 (`PREQ-S-7`).
-- `.github/workflows/nightly-stability.yml` — 06:00 UTC cron; enforces
-  the 7-day green streak (`POC-GATE-3`).
-- `.github/workflows/perf-gate.yml` — 100k LoC ≤ 90 s / ≤ 2 GB
-  (`POC-GATE-8`).
+## CI
 
-## Roadmap & Boundaries
+GitHub Actions workflows enforce reproducibility and performance:
 
-This release is the **deterministic scoring nucleus** plus a deterministic
-built-in source analyzer for Python and TypeScript fixtures. It does **not**
-yet claim final analyzer equivalence with pinned `tree-sitter`, `lizard`, or
-`scc` binaries — those gaps are tracked in [`DEFERRED.md`](./DEFERRED.md).
+| Workflow | What it checks |
+|----------|----------------|
+| `poc-determinism.yml` | Hash comparison across Ubuntu x86_64, arm64, and macOS arm64 |
+| `nightly-stability.yml` | 06:00 UTC cron — enforces a 7-day green streak |
+| `perf-gate.yml` | 100k LoC must score in ≤ 90 s and ≤ 2 GB RAM |
+
+## Roadmap
+
+This release is the **deterministic scoring nucleus** plus a built-in source analyzer for Python and TypeScript. The one open milestone is an **external reproduction receipt** — a signed confirmation from an independent reviewer that they reproduced the same `record_hash` on their own machine. See [`REPRODUCING.md`](./REPRODUCING.md) for the protocol if you'd like to contribute one.
 
 ## License
 
-This is a proof of concept. See repository metadata for licensing terms.
+[MIT](./LICENSE) — Copyright (c) 2026 nsharwin

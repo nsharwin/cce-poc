@@ -10,3 +10,7 @@ cce-out/
 .kiro/
 *.pyc
 .env
+
+# Internal planning and working documents — kept locally, not for public repo
+DEFERRED.md
+docs/
