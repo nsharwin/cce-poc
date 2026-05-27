@@ -55,7 +55,7 @@ def _warn_missing_crypto() -> None:
         "cryptography library not installed — JWKS signature verification "
         "is unavailable. Install 'cryptography' or 'PyJWT[crypto]'.",
     )
-    if env != "development" and os.environ.get("CCE_ALLOW_HASH_ONLY_JWKS") != "1":
+    if env != "development":
         raise RuntimeError(
             f"JwksVerifier refused to start in env={env!r} without the "
             "cryptography library. Install it or set CCE_ENV=development."

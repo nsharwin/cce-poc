@@ -99,6 +99,7 @@ def test_jwks_verifier_allows_dev_without_crypto(monkeypatch):
         jwks_uri="https://example.invalid/jwks.json",
         issuer="iss", audience="aud",
     )
+    assert isinstance(v, jwks_mod.JwksVerifier)
     # Signature verification must raise AuthError, not silently return.
     with pytest.raises(jwks_mod.AuthError, match="signature verification unavailable"):
         jwks_mod._verify_rs256(b"x.y", b"sig", {"e": "AQAB", "n": "AA"})
