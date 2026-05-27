@@ -13,6 +13,9 @@ import logging
 import os
 from typing import Any
 
+from cce_service.api.service import ApiError, ScoreService
+from cce_service.logging_setup import setup_json_logging
+
 _body_limit_logger = logging.getLogger("cce_service.api.body_limit")
 
 try:  # pragma: no cover - optional FastAPI dependency
@@ -24,9 +27,6 @@ except Exception:  # pragma: no cover - FastAPI not installed
     HTTPException = None  # type: ignore[assignment]
     Request = None  # type: ignore[assignment]
     status = None  # type: ignore[assignment]
-
-from cce_service.api.service import ApiError, ScoreService
-from cce_service.logging_setup import setup_json_logging
 
 _MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB
 
