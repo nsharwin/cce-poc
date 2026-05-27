@@ -10,18 +10,44 @@ from __future__ import annotations
 
 from typing import Any
 
+try:  # pragma: no cover - optional FastAPI dependency
+    from fastapi import FastAPI, Header, HTTPException, Request
+    from starlette import status
+except Exception:  # pragma: no cover - FastAPI not installed
+    FastAPI = None  # type: ignore[assignment]
+    Header = None  # type: ignore[assignment]
+    HTTPException = None  # type: ignore[assignment]
+    Request = None  # type: ignore[assignment]
+    status = None  # type: ignore[assignment]
+
 from cce_service.api.service import ApiError, ScoreService
 from cce_service.logging_setup import setup_json_logging
 
 _MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MiB
 
 
+async def _send_json(send: Any, status_code: int, payload: dict) -> None:
+    """Emit a minimal JSON ASGI response — used by the body-size middleware
+    so it can short-circuit before the app sees the request."""
+    import json as _json
+
+    body = _json.dumps(payload).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status_code,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
 def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
     """Return a configured FastAPI ``app`` bound to ``service``."""
     setup_json_logging()
-
-    from fastapi import FastAPI, Header, HTTPException, Request
-    from starlette import status
 
     from cce_service.logging_setup import set_request_id
 
@@ -40,22 +66,113 @@ def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
         # Re-raise as HTTPException so FastAPI emits the proper response shape.
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
 
-    @app.middleware("http")
-    async def _body_size_limit(request: Request, call_next: Any) -> Any:
-        content_length = request.headers.get("content-length")
-        if content_length is not None:
+    class _BodySizeLimitMiddleware:
+        """Pure-ASGI middleware that bounds request body size.
+
+        Rejects oversized bodies whether the client honestly declares a
+        ``Content-Length``, lies about it, or omits it entirely via
+        ``Transfer-Encoding: chunked``. Counts bytes off the ASGI receive
+        channel so a forged header cannot bypass the limit.
+        """
+
+        def __init__(self, asgi_app: Any, max_bytes: int) -> None:
+            self.app = asgi_app
+            self.max_bytes = max_bytes
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope.get("type") != "http":
+                await self.app(scope, receive, send)
+                return
+
+            headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                       for k, v in scope.get("headers", [])}
+            cl = headers.get("content-length")
+            if cl is not None:
+                try:
+                    declared = int(cl)
+                except ValueError:
+                    await _send_json(
+                        send, 400, {"detail": "invalid content-length header"}
+                    )
+                    return
+                if declared > self.max_bytes:
+                    await _send_json(
+                        send,
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        {
+                            "detail": (
+                                f"request body exceeds {self.max_bytes} "
+                                "byte limit"
+                            )
+                        },
+                    )
+                    return
+
+            received = 0
+            too_large = False
+
+            async def limited_receive() -> Any:
+                nonlocal received, too_large
+                message = await receive()
+                if message.get("type") == "http.request":
+                    received += len(message.get("body", b""))
+                    if received > self.max_bytes:
+                        too_large = True
+                return message
+
+            response_started = False
+
+            async def guarded_send(message: Any) -> None:
+                nonlocal response_started
+                if message.get("type") == "http.response.start":
+                    response_started = True
+                    if too_large:
+                        # Swap the inner app's response start for a 413.
+                        await _send_json(
+                            send,
+                            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            {
+                                "detail": (
+                                    f"request body exceeds "
+                                    f"{self.max_bytes} byte limit"
+                                )
+                            },
+                        )
+                        return
+                if too_large and message.get("type") == "http.response.body":
+                    # Drop the inner body; 413 has already been emitted.
+                    return
+                await send(message)
+
             try:
-                length = int(content_length)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400, detail="invalid content-length header"
-                ) from None
-            if length > _MAX_BODY_BYTES:
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"request body exceeds {_MAX_BODY_BYTES} byte limit",
+                await self.app(scope, limited_receive, guarded_send)
+            except Exception:
+                if too_large and not response_started:
+                    await _send_json(
+                        send,
+                        status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        {
+                            "detail": (
+                                f"request body exceeds "
+                                f"{self.max_bytes} byte limit"
+                            )
+                        },
+                    )
+                    return
+                raise
+            if too_large and not response_started:
+                await _send_json(
+                    send,
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    {
+                        "detail": (
+                            f"request body exceeds "
+                            f"{self.max_bytes} byte limit"
+                        )
+                    },
                 )
-        return await call_next(request)
+
+    app.add_middleware(_BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
