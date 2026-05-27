@@ -131,9 +131,59 @@ def test_sidecar_files_have_canonical_contents(tmp_path: Path, capsys) -> None:
     paths = [entry["path"] for entry in raw["files"]]
     assert paths == sorted(paths)
 
-    # (c) .sha256 sidecar is exactly "sha256:<hex>\n" of sha256(record_bytes)
+    # (c) .sha256 sidecar is GNU-coreutils format: "<hex>  <record_hash>.json\n"
+    #     so external users can run `cd <out_dir> && sha256sum -c <file>` directly.
     expected_digest = hashlib.sha256(record_bytes).hexdigest()
-    assert sha_file.read_text(encoding="utf-8") == f"sha256:{expected_digest}\n"
+    assert sha_file.read_text(encoding="utf-8") == (
+        f"{expected_digest}  {record_hash}.json\n"
+    )
+
+
+def test_verify_accepts_legacy_and_new_sidecar(tmp_path: Path, capsys) -> None:
+    """`cce verify --sidecar` must accept both legacy and new sidecar formats."""
+    repo, commit_sha = make_fixture_repo(tmp_path)
+    spec_path = tmp_path / "scoring-spec.yaml"
+    out_dir = tmp_path / "cce-out"
+    write_sample_spec(spec_path)
+
+    assert (
+        main(
+            [
+                "score",
+                "--spec",
+                str(spec_path),
+                "--repo",
+                str(repo),
+                "--mode",
+                "commit",
+                "--commit",
+                commit_sha,
+                "--out",
+                str(out_dir),
+                "--verify-digests",
+                "false",
+            ]
+        )
+        == 0
+    )
+    record_hash = capsys.readouterr().out.strip()
+    sidecar = out_dir / f"{record_hash}.sha256"
+
+    # New format (default): verify succeeds.
+    assert main(["verify", "--sidecar", str(sidecar)]) == 0
+
+    # Legacy format: rewrite as "sha256:<hex>\n" and verify still succeeds.
+    record_bytes = (out_dir / f"{record_hash}.json").read_bytes()
+    legacy_hex = hashlib.sha256(record_bytes).hexdigest()
+    sidecar.write_text(f"sha256:{legacy_hex}\n", encoding="utf-8")
+    assert main(["verify", "--sidecar", str(sidecar)]) == 0
+
+    # Tamper case: a malformed digest must fail non-zero.
+    sidecar.write_text(
+        f"0000000000000000000000000000000000000000000000000000000000000000  {record_hash}.json\n",
+        encoding="utf-8",
+    )
+    assert main(["verify", "--sidecar", str(sidecar)]) != 0
 
 
 def test_verify_cli_accepts_untampered_record(tmp_path: Path, capsys) -> None:

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cce-config
+  namespace: cce
+data:
+  CCE_CH_DB: "cce"
+  CCE_CH_HTTP_PORT: "8123"
+  CCE_CH_CONNECT_TIMEOUT: "10"
+  CCE_CH_SEND_RECEIVE_TIMEOUT: "30"
+  CCE_PG_DB: "cce"
+  CCE_PG_PORT: "5432"
+  CCE_API_PORT: "8080"
+  CCE_ENV: "production"
+  CCE_LOG_FORMAT: "json"
+  CCE_JAOKER_CONFIG: "/opt/cce/ops/firecracker/jailer.json"

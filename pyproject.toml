@@ -9,6 +9,30 @@ dependencies = [
     "rfc8785==0.1.4",
     "tree-sitter==0.24.0",
     "tree-sitter-language-pack==0.7.2",
+    "lizard==1.17.31",
+    # OpenTelemetry tracing surface (PREQ-O-1, spec preqo1-span-reconciliation).
+    # `opentelemetry-sdk` provides TracerProvider + BatchSpanProcessor +
+    # ConsoleSpanExporter (default-stderr branch when OTLP_Endpoint_Vars are
+    # unset). `opentelemetry-exporter-otlp-proto-http` provides
+    # OTLPSpanExporter (selected when either OTEL_EXPORTER_OTLP_ENDPOINT or
+    # OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set). `opentelemetry-api` is the
+    # public tracing API consumed by `src/cce/otel.py::stage_span`.
+    "opentelemetry-api==1.27.0",
+    "opentelemetry-sdk==1.27.0",
+    "opentelemetry-exporter-otlp-proto-http==1.27.0",
+]
+
+[project.optional-dependencies]
+# Server-only extras for the cce-service surface (Postgres + ClickHouse staging).
+# Not required for the deterministic scoring core; gated behind `pip install '.[cce-service]'`.
+cce-service = [
+    "psycopg[binary]==3.2.3",
+    "SQLAlchemy==2.0.36",
+    "alembic==1.14.0",
+    "clickhouse-connect==0.8.7",
+    "fastapi==0.115.5",
+    "uvicorn==0.32.1",
+    "cryptography==44.0.2",
 ]
 
 [project.scripts]
@@ -27,13 +51,24 @@ package = true
 [dependency-groups]
 dev = [
     "hatchling",
+    "hypothesis==6.122.3",
     "pytest==9.0.3",
+    "pytest-cov>=6.1",
     "ruff==0.15.14",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = ["--strict-markers"]
+
+[tool.coverage.run]
+source = ["src/cce"]
+omit = ["src/cce_service/*"]
+
+[tool.coverage.report]
+fail_under = 80.0
+precision = 1
 
 [tool.ruff]
 line-length = 100

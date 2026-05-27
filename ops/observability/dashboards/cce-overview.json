@@ -1,0 +1,109 @@
+{
+  "title": "CCE Overview",
+  "uid": "cce-overview",
+  "schemaVersion": 39,
+  "timezone": "utc",
+  "tags": ["cce", "scoring", "production-readiness"],
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Records scored (rate, 5m)",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        { "expr": "sum(rate(cce_records_total[5m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Failures by reason (5m)",
+      "id": 2,
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(cce_job_failures_total[5m]))",
+          "refId": "A",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "score duration p50/p95 (s)",
+      "id": 3,
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(cce_score_duration_seconds_bucket{stage=\"total\"}[5m])))",
+          "refId": "p50",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cce_score_duration_seconds_bucket{stage=\"total\"}[5m])))",
+          "refId": "p95",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "API request rate by status",
+      "id": 4,
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(http_requests_total{job=\"cce-api\"}[5m]))",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Record GET p95 (s)",
+      "id": 5,
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"cce-api\",route=\"/v1/records\"}[5m])))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth",
+      "id": 6,
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "cce_queue_depth", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Firecracker boot failures (rate)",
+      "id": 7,
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "rate(cce_firecracker_boot_failures_total[5m])", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Cross-runner hash mismatches (24h)",
+      "id": 8,
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 6 },
+      "targets": [
+        { "expr": "max_over_time(cce_record_hash_mismatch_total[24h])", "refId": "A" }
+      ]
+    }
+  ]
+}

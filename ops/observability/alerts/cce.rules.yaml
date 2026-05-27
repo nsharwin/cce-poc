@@ -1,0 +1,104 @@
+# Prometheus alerting rules for CCE (PREQ-O-1).
+#
+# SLOs (see ops/slo.md):
+#   - API availability ≥ 99.9% monthly
+#   - score p95 ≤ 90 s for ≤ 100k LoC
+#   - record GET p95 ≤ 200 ms
+#
+# Each rule has a runbook URL under ops/runbooks/ for on-call response.
+
+groups:
+  - name: cce.api
+    interval: 30s
+    rules:
+      - alert: CCEApi5xxRateHigh
+        expr: |
+          sum(rate(http_requests_total{job="cce-api",status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="cce-api"}[5m]))
+            > 0.01
+        for: 10m
+        labels:
+          severity: page
+          service: cce-api
+        annotations:
+          summary: "CCE API 5xx rate > 1% for 10m"
+          runbook: "ops/runbooks/api-5xx.md"
+
+      - alert: CCEScoreLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(cce_score_duration_seconds_bucket{stage="total"}[10m]))
+          ) > 90
+        for: 15m
+        labels:
+          severity: page
+          service: cce-worker
+        annotations:
+          summary: "score p95 > 90 s for 15m (SLO breach)"
+          runbook: "ops/runbooks/worker-stuck.md"
+
+      - alert: CCERecordReadLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="cce-api",route="/v1/records"}[10m]))
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: ticket
+          service: cce-api
+        annotations:
+          summary: "record GET p95 > 200 ms"
+          runbook: "ops/runbooks/clickhouse-lag.md"
+
+  - name: cce.determinism
+    interval: 1m
+    rules:
+      - alert: CCERecordHashMismatch
+        # The matrix-hash-compare job updates this gauge; any non-zero
+        # value means at least one cross-runner divergence in the last 24h.
+        expr: max_over_time(cce_record_hash_mismatch_total[24h]) > 0
+        for: 0m
+        labels:
+          severity: page
+          service: cce-determinism
+        annotations:
+          summary: "Cross-runner hash mismatch detected"
+          runbook: "ops/runbooks/hash-mismatch.md"
+
+  - name: cce.workers
+    interval: 30s
+    rules:
+      - alert: CCEJobFailureRateHigh
+        expr: |
+          sum by (reason) (rate(cce_job_failures_total[5m]))
+            > 0.1
+        for: 10m
+        labels:
+          severity: page
+          service: cce-worker
+        annotations:
+          summary: "cce_job_failures_total rate > 0.1/s by reason={{ $labels.reason }}"
+          runbook: "ops/runbooks/worker-stuck.md"
+
+      - alert: CCEFirecrackerBootFailures
+        expr: rate(cce_firecracker_boot_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: page
+          service: cce-worker
+        annotations:
+          summary: "Firecracker microVM boot failures"
+          runbook: "ops/runbooks/firecracker-boot-fail.md"
+
+  - name: cce.queue
+    interval: 30s
+    rules:
+      - alert: CCEQueueDepthHigh
+        expr: cce_queue_depth > 100
+        for: 10m
+        labels:
+          severity: ticket
+          service: cce-api
+        annotations:
+          summary: "scoring queue depth > 100 for 10m"
+          runbook: "ops/runbooks/worker-stuck.md"

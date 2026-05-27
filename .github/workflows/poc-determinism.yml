@@ -7,17 +7,19 @@ on:
 
 jobs:
   deterministic-core:
-    name: ${{ matrix.name }}
+    name: deterministic-${{ matrix.runner-name }}-${{ matrix.fixture }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        runner-name: [linux-x86_64, linux-arm64, macos-arm64]
+        fixture: [simple_python, simple_typescript, perf_100k]
         include:
-          - name: linux-x86_64
+          - runner-name: linux-x86_64
             runner: ubuntu-24.04
-          - name: linux-arm64
+          - runner-name: linux-arm64
             runner: ubuntu-24.04-arm
-          - name: macos-arm64
+          - runner-name: macos-arm64
             runner: macos-15
     steps:
       - name: Checkout
@@ -34,13 +36,268 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run unit tests
+      - name: Generate SBOM (CycloneDX)
+        if: matrix.fixture == 'simple_python'
+        run: |
+          uv pip compile pyproject.toml --all-extras --output-file /tmp/requirements.txt
+          python3 -c "
+          import json, sys
+          pkgs = []
+          with open('/tmp/requirements.txt') as f:
+              for line in f:
+                  line = line.strip()
+                  if not line or line.startswith('#'):
+                      continue
+                  parts = line.split('==')
+                  pkgs.append({'name': parts[0], 'version': parts[1] if len(parts) > 1 else 'unknown'})
+          sbom = {
+              'bomFormat': 'CycloneDX',
+              'specVersion': '1.5',
+              'components': [{'type': 'library', 'name': p['name'], 'version': p['version']} for p in pkgs]
+          }
+          with open('sbom.cdx.json', 'w') as f:
+              json.dump(sbom, f, indent=2)
+          print(f'SBOM generated: {len(pkgs)} packages')
+          "
+
+      - name: Upload SBOM artifact
+        if: matrix.fixture == 'simple_python'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+      - name: Run unit tests (simple_python only — runs once per runner)
+        if: matrix.fixture == 'simple_python'
         run: uv run pytest -q
 
-      - name: Run PREQ-S-6 determinism gate
+      - name: Run PREQ-S-6 determinism gate (simple_python only — runs once per runner)
+        if: matrix.fixture == 'simple_python'
         run: uv run pytest tests/determinism_100x.py -q
 
+      - name: Materialise perf_100k fixture
+        if: matrix.fixture == 'perf_100k'
+        run: |
+          mkdir -p tests/fixtures/perf_100k/repo
+          uv run python -m tests.fixtures.perf_100k.generate --out tests/fixtures/perf_100k/repo
+
+      - name: Resolve fixture root
+        id: fixture-root
+        run: |
+          if [ "${{ matrix.fixture }}" = "perf_100k" ]; then
+            echo "path=tests/fixtures/perf_100k/repo" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=tests/fixtures/${{ matrix.fixture }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Init fixture git repo (deterministic)
+        env:
+          GIT_AUTHOR_NAME: CCE Test
+          GIT_AUTHOR_EMAIL: cce@example.test
+          GIT_AUTHOR_DATE: "2026-01-01T00:00:00+0000"
+          GIT_COMMITTER_NAME: CCE Test
+          GIT_COMMITTER_EMAIL: cce@example.test
+          GIT_COMMITTER_DATE: "2026-01-01T00:00:00+0000"
+        run: |
+          cd "${{ steps.fixture-root.outputs.path }}"
+          git init -q --initial-branch=main
+          git config user.email "cce@example.test"
+          git config user.name "CCE Test"
+          git add .
+          git commit -q -m "fixture"
+          echo "Fixture HEAD: $(git rev-parse HEAD)"
+
+      - name: Score fixture repo (PREQ-S-7)
+        run: |
+          mkdir -p cce-out
+          HASH=$(uv run cce score \
+            --spec ./scoring-spec.yaml \
+            --repo "${{ steps.fixture-root.outputs.path }}" \
+            --mode repo \
+            --out ./cce-out)
+          echo "$HASH" > cce-out/record_hash.txt
+          echo "RECORD_HASH=$HASH" >> "$GITHUB_ENV"
+
+      - name: Frozen_Hash_Gate — assert record_hash matches expected_record_hash.txt
+        run: |
+          set -euo pipefail
+          EXPECTED_FILE="tests/fixtures/${{ matrix.fixture }}/expected_record_hash.txt"
+          EXPECTED="$(cat "$EXPECTED_FILE")"
+          # Strip trailing newline (read by `cat`).
+          EXPECTED="${EXPECTED%$'\n'}"
+          if [ "$RECORD_HASH" != "$EXPECTED" ]; then
+            echo "FAIL: ${{ matrix.fixture }} on ${{ matrix.runner-name }}"
+            echo "  produced: $RECORD_HASH"
+            echo "  expected: $EXPECTED"
+            exit 1
+          fi
+          echo "PASS: ${{ matrix.fixture }} on ${{ matrix.runner-name }} matches frozen hash"
+
+      - name: Upload record hash artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: record-hash-${{ matrix.fixture }}-${{ matrix.runner-name }}
+          path: cce-out/record_hash.txt
+
+  container-isolation:
+    name: container-isolation-${{ matrix.runner-name }}-${{ matrix.fixture }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner-name: [linux-x86_64, linux-arm64]
+        fixture: [simple_python, simple_typescript, perf_100k]
+        include:
+          - runner-name: linux-x86_64
+            runner: ubuntu-24.04
+          - runner-name: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Materialise perf_100k fixture
+        if: matrix.fixture == 'perf_100k'
+        run: |
+          python3 -m venv .perf-venv
+          .perf-venv/bin/pip install --quiet --no-deps -e .
+          mkdir -p tests/fixtures/perf_100k/repo
+          .perf-venv/bin/python -m tests.fixtures.perf_100k.generate --out tests/fixtures/perf_100k/repo
+
+      - name: Resolve fixture root
+        id: fixture-root
+        run: |
+          if [ "${{ matrix.fixture }}" = "perf_100k" ]; then
+            echo "path=tests/fixtures/perf_100k/repo" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=tests/fixtures/${{ matrix.fixture }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Init fixture git repo (deterministic)
+        env:
+          GIT_AUTHOR_NAME: CCE Test
+          GIT_AUTHOR_EMAIL: cce@example.test
+          GIT_AUTHOR_DATE: "2026-01-01T00:00:00+0000"
+          GIT_COMMITTER_NAME: CCE Test
+          GIT_COMMITTER_EMAIL: cce@example.test
+          GIT_COMMITTER_DATE: "2026-01-01T00:00:00+0000"
+        run: |
+          cd "${{ steps.fixture-root.outputs.path }}"
+          git init -q --initial-branch=main
+          git config user.email "cce@example.test"
+          git config user.name "CCE Test"
+          git add .
+          git commit -q -m "fixture"
+          echo "Fixture HEAD: $(git rev-parse HEAD)"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db
+
+      - name: Build CCE container image (PREQ-A-2)
+        run: docker build -t cce-poc:ci .
+
+      - name: PREQ-X-3 / POC-GATE-5 — assert curl egress FAILS under --network=none
+        if: matrix.fixture == 'simple_python'
+        run: |
+          set -eux
+          if docker run --rm --network=none --entrypoint=curl cce-poc:ci -m2 https://example.com; then
+            echo "FAIL: curl reached the internet under --network=none"
+            exit 1
+          fi
+          echo "PASS: network egress correctly blocked"
+
+      - name: Score fixture inside isolated container (PREQ-A-3)
+        run: |
+          mkdir -p cce-out
+          HASH=$(docker run --rm \
+            --network=none \
+            -e CCE_REQUIRE_NETWORK_ISOLATED=1 \
+            -v "$PWD:/work:ro" \
+            -v "$PWD/cce-out:/work/cce-out" \
+            cce-poc:ci \
+            score \
+              --spec /work/scoring-spec.yaml \
+              --repo "/work/${{ steps.fixture-root.outputs.path }}" \
+              --mode repo \
+              --out /work/cce-out)
+          echo "$HASH" > cce-out/record_hash.txt
+          echo "RECORD_HASH=$HASH" >> "$GITHUB_ENV"
+          echo "container HASH=$HASH"
+
+      - name: Frozen_Hash_Gate — assert container record_hash matches expected_record_hash.txt
+        run: |
+          set -euo pipefail
+          EXPECTED_FILE="tests/fixtures/${{ matrix.fixture }}/expected_record_hash.txt"
+          EXPECTED="$(cat "$EXPECTED_FILE")"
+          EXPECTED="${EXPECTED%$'\n'}"
+          if [ "$RECORD_HASH" != "$EXPECTED" ]; then
+            echo "FAIL: container ${{ matrix.fixture }} on ${{ matrix.runner-name }}"
+            echo "  produced: $RECORD_HASH"
+            echo "  expected: $EXPECTED"
+            exit 1
+          fi
+          echo "PASS: container ${{ matrix.fixture }} on ${{ matrix.runner-name }} matches frozen hash"
+
+      - name: Upload container record-hash artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: record-hash-container-${{ matrix.fixture }}-${{ matrix.runner-name }}
+          path: cce-out/record_hash.txt
+
+  compare-hashes:
+    name: Compare record hashes per fixture across runners
+    runs-on: ubuntu-24.04
+    needs:
+      - deterministic-core
+      - container-isolation
+    steps:
+      - name: Download all hash artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: hash-artifacts
+
+      - name: Assert per-fixture cross-runner agreement
+        run: |
+          set -euo pipefail
+          echo "=== Collected hashes ==="
+          find hash-artifacts -name "record_hash.txt" -exec sh -c 'echo "$1: $(cat $1)"' _ {} \;
+          for fixture in simple_python simple_typescript perf_100k; do
+            UNIQUE=$(find hash-artifacts \
+              \( -path "*record-hash-${fixture}-*/record_hash.txt" \
+                 -o -path "*record-hash-container-${fixture}-*/record_hash.txt" \) \
+              -exec cat {} \; | sort -u | wc -l)
+            if [ "$UNIQUE" -ne 1 ]; then
+              echo "FAIL: fixture=${fixture} produced ${UNIQUE} distinct hashes across runners"
+              find hash-artifacts \
+                \( -path "*record-hash-${fixture}-*/record_hash.txt" \
+                   -o -path "*record-hash-container-${fixture}-*/record_hash.txt" \) \
+                -exec sh -c 'echo "  $1: $(cat $1)"' _ {} \;
+              exit 1
+            fi
+            echo "PASS: fixture=${fixture} agrees across runners"
+          done
+          echo "PASS: all three fixtures agree across runners"
+
+  span-gate:
+    name: PREQ-O-1 Span Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.9.27"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Init simple_python fixture (deterministic)
         env:
           GIT_AUTHOR_NAME: CCE Test
           GIT_AUTHOR_EMAIL: cce@example.test
@@ -55,45 +312,83 @@ jobs:
           git config user.name "CCE Test"
           git add .
           git commit -q -m "fixture"
-          echo "Fixture HEAD: $(git rev-parse HEAD)"
 
-      - name: Score fixture repo (PREQ-S-7)
+      - name: Run cce score and capture stderr
+        id: cce
+        timeout-minutes: 5            # Requirement 4.1 (300 s)
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ""
+          OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ""
         run: |
+          set +e
           mkdir -p cce-out
-          HASH=$(uv run cce score \
+          uv run cce score \
             --spec ./scoring-spec.yaml \
-            --repo ./tests/fixtures/simple_python \
+            --repo tests/fixtures/simple_python \
             --mode repo \
             --out ./cce-out \
-            --verify-digests false)
-          echo "$HASH" > cce-out/record_hash.txt
-          echo "RECORD_HASH=$HASH" >> "$GITHUB_ENV"
+            > cce-out/score.stdout 2> cce-out/score.stderr
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
-      - name: Upload record hash artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: record-hash-${{ matrix.name }}
-          path: cce-out/record_hash.txt
-
-  compare-hashes:
-    name: Compare record hashes across runners
-    runs-on: ubuntu-24.04
-    needs: deterministic-core
-    steps:
-      - name: Download all hash artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          path: hash-artifacts
-
-      - name: Assert all hashes match
+      - name: Span_Gate — assert PRD_Span_Set is a subset of emitted, emitted is a subset of Allowed_Span_Set
         run: |
           set -euo pipefail
-          echo "=== Collected hashes ==="
-          find hash-artifacts -name "record_hash.txt" -exec sh -c 'echo "$1: $(cat $1)"' _ {} \;
-          UNIQUE=$(find hash-artifacts -name "record_hash.txt" -exec cat {} \; | sort -u | wc -l)
-          echo "Unique hashes: $UNIQUE"
-          if [ "$UNIQUE" -ne 1 ]; then
-            echo "FAIL: runners produced different record hashes"
+          EXIT_CODE="${{ steps.cce.outputs.exit_code }}"
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "FAIL: cce score exited $EXIT_CODE"     # Requirement 4.5
+            echo "--- stderr ---"
+            cat cce-out/score.stderr || true
+            echo "--- stdout ---"
+            cat cce-out/score.stdout || true
             exit 1
           fi
-          echo "PASS: all runners agree on record hash"
+          uv run python <<'PY'
+          import json, re, sys
+          from pathlib import Path
+
+          PRD_SPAN_SET = {
+              "cce.load_spec",
+              "cce.clone",
+              "cce.parse",
+              "cce.measure",
+              "cce.score",
+          }
+          ALLOWED_SPAN_SET = PRD_SPAN_SET | {"cce.write_outputs"}
+          NAME_RE = re.compile(r"^cce\.[a-z_]+$")
+
+          stderr = Path("cce-out/score.stderr").read_text(encoding="utf-8")
+          extracted: set[str] = set()
+          for line in stderr.splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  obj = json.loads(line)
+              except (ValueError, json.JSONDecodeError):
+                  continue
+              if not isinstance(obj, dict):
+                  continue
+              name = obj.get("name")
+              if not isinstance(name, str):
+                  continue
+              if not NAME_RE.match(name):
+                  continue
+              extracted.add(name)
+
+          missing = PRD_SPAN_SET - extracted
+          extraneous = extracted - ALLOWED_SPAN_SET
+
+          print("=== Extracted_Span_Names ===")
+          for n in sorted(extracted):
+              print(f"  {n}")
+          print(f"missing PRD names: {sorted(missing)}")
+          print(f"extraneous names:  {sorted(extraneous)}")
+
+          if missing:
+              print("FAIL: Span_Gate missing PRD names")    # Requirement 4.3, 4.6
+              sys.exit(1)
+          if extraneous:
+              print("FAIL: Span_Gate extraneous names")     # Requirement 4.4, 4.6
+              sys.exit(1)
+          print("PASS: Span_Gate")                          # Requirement 4.7
+          PY

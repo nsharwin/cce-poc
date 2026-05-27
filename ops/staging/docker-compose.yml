@@ -1,0 +1,117 @@
+# Staging compose for the CCE service. Brings up Postgres + ClickHouse +
+# the FastAPI app + a worker, all pointing at the real storage adapters.
+#
+# Usage:
+#   cp ops/staging/.env.example ops/staging/.env
+#   docker compose -f ops/staging/docker-compose.yml --env-file ops/staging/.env up -d
+#   ops/staging/smoke.sh
+#
+# This is intentionally minimal — see ops/staging/README.md (if/when added)
+# for hardening (TLS, IAM auth, persistent volumes).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${CCE_PG_USER}
+      POSTGRES_PASSWORD: ${CCE_PG_PASSWORD}
+      POSTGRES_DB: ${CCE_PG_DB}
+    ports:
+      - "${CCE_PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CCE_PG_USER} -d ${CCE_PG_DB}"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    environment:
+      CLICKHOUSE_DB: ${CCE_CH_DB:-cce}
+      CLICKHOUSE_USER: ${CCE_CH_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CCE_CH_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "${CCE_CH_HTTP_PORT:-8123}:8123"
+      - "${CCE_CH_NATIVE_PORT:-9000}:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SCC_SHA256: ${SCC_SHA256:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CCE_POSTGRES_DSN: postgresql+psycopg://${CCE_PG_USER}:${CCE_PG_PASSWORD}@postgres:5432/${CCE_PG_DB}
+      CCE_CLICKHOUSE_HOST: clickhouse
+      CCE_CLICKHOUSE_PORT: "${CCE_CH_HTTP_PORT:-8123}"
+      CCE_CLICKHOUSE_DB: ${CCE_CH_DB:-cce}
+      CCE_API_BIND: 0.0.0.0:8080
+      CCE_LOG_FORMAT: json
+    ports:
+      - "${CCE_API_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8080/healthz\")'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # Override the default `cce` entrypoint with the FastAPI server.
+    entrypoint: ["uvicorn"]
+    command: ["cce_service.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SCC_SHA256: ${SCC_SHA256:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CCE_POSTGRES_DSN: postgresql+psycopg://${CCE_PG_USER}:${CCE_PG_PASSWORD}@postgres:5432/${CCE_PG_DB}
+      CCE_CLICKHOUSE_HOST: clickhouse
+      CCE_CLICKHOUSE_PORT: "${CCE_CH_HTTP_PORT:-8123}"
+      CCE_CLICKHOUSE_DB: ${CCE_CH_DB:-cce}
+      CCE_LOG_FORMAT: json
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4"
+    entrypoint: ["python", "-m", "cce_service.workers.runner"]
+    restart: unless-stopped

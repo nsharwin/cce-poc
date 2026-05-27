@@ -46,7 +46,10 @@ class ScoringSpec:
 
 def load_spec(path: Path) -> ScoringSpec:
     with path.open("r", encoding="utf-8") as handle:
-        loaded = yaml.safe_load(handle)
+        try:
+            loaded = yaml.safe_load(handle)
+        except yaml.YAMLError as exc:
+            raise SpecValidationError(f"invalid YAML in scoring spec: {exc}") from exc
     if not isinstance(loaded, dict):
         raise SpecValidationError("scoring spec must be a YAML mapping")
     return spec_from_mapping(loaded)

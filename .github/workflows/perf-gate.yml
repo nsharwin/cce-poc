@@ -1,0 +1,44 @@
+name: Perf Gate (POC-GATE-8)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Nightly safety net at 05:00 UTC, ahead of nightly-stability.
+    - cron: "0 5 * * *"
+
+jobs:
+  perf-100k-loc:
+    name: 100k LoC ≤ 90 s / ≤ 2 GB
+    runs-on: ubuntu-24.04
+    env:
+      CCE_RUN_PERF: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.9.27"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run POC-GATE-8 perf gate
+        run: |
+          mkdir -p perf-out
+          uv run pytest tests/perf/test_100k_loc.py -q \
+            --junitxml=perf-out/junit.xml \
+            | tee perf-out/perf.log
+
+      - name: Upload perf artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: perf-gate-100k
+          path: perf-out/

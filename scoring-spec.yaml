@@ -1,42 +1,87 @@
 spec_version: 0.1.0
-spec_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+spec_hash: sha256:63633e7b157b66b66ce387c499ce87aa336fe9b3f77ed5451874b38f4bee54ef
 languages:
-  - python
-  - typescript
+- python
+- typescript
 weights:
-  cyclomatic: "0.30"
-  cognitive: "0.30"
-  nesting_depth: "0.15"
-  file_length: "0.10"
-  function_length: "0.15"
+  cyclomatic: '0.30'
+  cognitive: '0.30'
+  nesting_depth: '0.15'
+  file_length: '0.10'
+  function_length: '0.15'
 normalisation:
-  method: "piecewise_linear_frozen_cuts"
+  method: piecewise_linear_frozen_cuts
   cyclomatic:
-    cuts: ["5", "10", "20", "50"]
-    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+    cuts:
+    - '5'
+    - '10'
+    - '20'
+    - '50'
+    normalised:
+    - '0.00'
+    - '0.25'
+    - '0.50'
+    - '0.75'
+    - '1.00'
   cognitive:
-    cuts: ["5", "15", "30", "60"]
-    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+    cuts:
+    - '5'
+    - '15'
+    - '30'
+    - '60'
+    normalised:
+    - '0.00'
+    - '0.25'
+    - '0.50'
+    - '0.75'
+    - '1.00'
   nesting_depth:
-    cuts: ["2", "4", "6", "8"]
-    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+    cuts:
+    - '2'
+    - '4'
+    - '6'
+    - '8'
+    normalised:
+    - '0.00'
+    - '0.25'
+    - '0.50'
+    - '0.75'
+    - '1.00'
   function_length:
-    cuts: ["20", "50", "100", "200"]
-    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+    cuts:
+    - '20'
+    - '50'
+    - '100'
+    - '200'
+    normalised:
+    - '0.00'
+    - '0.25'
+    - '0.50'
+    - '0.75'
+    - '1.00'
   file_length:
-    cuts: ["100", "300", "600", "1000"]
-    normalised: ["0.00", "0.25", "0.50", "0.75", "1.00"]
+    cuts:
+    - '100'
+    - '300'
+    - '600'
+    - '1000'
+    normalised:
+    - '0.00'
+    - '0.25'
+    - '0.50'
+    - '0.75'
+    - '1.00'
 rounding:
   decimal_places: 4
   mode: ROUND_HALF_EVEN
 pinned_tools:
-  tree_sitter_core: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  tree_sitter_core: sha256:c39b3dc4262509c6618802dbbf483a16bce6d519b29b8a87dd7b4657f26ad5e1
   grammars:
-    python: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
-    typescript: "sha256:4444444444444444444444444444444444444444444444444444444444444444"
-  lizard: "sha256:5555555555555555555555555555555555555555555555555555555555555555"
-  scc: "sha256:6666666666666666666666666666666666666666666666666666666666666666"
-worker_image: "sha256:7777777777777777777777777777777777777777777777777777777777777777"
-git_min_version: "2.50.1"
-canonicalisation: "RFC8785"
-hash_algorithm: "sha256"
+    python: sha256:71e26ef48ed435ea07866e68d1e07ecf84eb02cb7ac539e05e1c9cab19096478
+    typescript: sha256:38dabe410e3cdfedbcceff6eb8daf9ef742b8c9fe6803487cf2b9182db46190a
+  lizard: sha256:a3812c02aae512cc0334389e797a1405e7e7849fd0b8adb38888f40751694fa5
+  scc: sha256:6cb156fc5667b1a97b654ff5e4c9c2c937870adbe00d7380b64a4a4c5bca2e0b
+worker_image: sha256:93ab4b7fa528b25124c97bcc755415e60eb671a86b4dbe0328df2fe2d1c1193d
+git_min_version: 2.50.1
+canonicalisation: RFC8785
+hash_algorithm: sha256

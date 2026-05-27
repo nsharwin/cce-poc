@@ -1,0 +1,51 @@
+{
+  "$comment": [
+    "Jailer config for the CCE Firecracker worker pool (PREQ-X-4).",
+    "These values are templated by the deploy pipeline; the digests are",
+    "regenerated whenever rootfs.build.sh or the pinned kernel changes.",
+    "No TAP device is present here — the guest has zero network interfaces",
+    "by construction, which is the PREQ-A-3 / REQ-X-5 hard guarantee."
+  ],
+  "firecracker_binary": "/opt/firecracker/firecracker",
+  "firecracker_digest": "sha256:${FC_FIRECRACKER_DIGEST}",
+  "jailer_binary": "/opt/firecracker/jailer",
+  "jailer_digest": "sha256:${FC_JAILER_DIGEST}",
+  "kernel_image": "/opt/firecracker/vmlinux-cce",
+  "kernel_digest": "sha256:${FC_KERNEL_DIGEST}",
+  "rootfs_image": "/opt/firecracker/cce-rootfs.ext4",
+  "rootfs_digest": "sha256:${FC_ROOTFS_DIGEST}",
+  "vcpu_count": 2,
+  "mem_mib": 2048,
+  "wallclock_seconds": 120,
+  "uid": 1000,
+  "gid": 1000,
+  "cgroup_v2": true,
+  "new_pid_ns": true,
+  "new_net_ns": true,
+  "drop_capabilities": [
+    "CAP_NET_ADMIN", "CAP_NET_RAW", "CAP_SYS_ADMIN",
+    "CAP_SYS_MODULE", "CAP_SYS_RAWIO"
+  ],
+  "machine_config": {
+    "vcpu_count": 2,
+    "mem_size_mib": 2048,
+    "smt": false
+  },
+  "drives": [
+    {
+      "drive_id": "rootfs",
+      "path_on_host": "/opt/firecracker/cce-rootfs.ext4",
+      "is_root_device": true,
+      "is_read_only": true
+    }
+  ],
+  "vsock": {
+    "guest_cid": 3,
+    "uds_path": "/run/cce/fc-vsock.sock"
+  },
+  "network_interfaces": [],
+  "boot_source": {
+    "kernel_image_path": "/opt/firecracker/vmlinux-cce",
+    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off ro init=/init"
+  }
+}

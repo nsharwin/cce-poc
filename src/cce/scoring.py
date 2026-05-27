@@ -116,7 +116,16 @@ def verify_record_hash(record: dict[str, Any]) -> bool:
     record_hash = record.get("record_hash")
     if not isinstance(record_hash, str):
         return False
-    return compute_record_hash(record) == record_hash
+    valid = compute_record_hash(record) == record_hash
+    if not valid:
+        # Verify path only — never invoked from the deterministic scoring pipeline,
+        # so emitting this metric does not affect record_hash.
+        from cce.otel import RECORD_HASH_MISMATCH_TOTAL
+
+        spec_hash = record.get("spec_hash", "unknown")
+        commit_sha = record.get("commit_sha", "unknown")
+        RECORD_HASH_MISMATCH_TOTAL.labels(spec_hash=spec_hash, commit_sha=commit_sha).inc()
+    return valid
 
 
 @contextmanager

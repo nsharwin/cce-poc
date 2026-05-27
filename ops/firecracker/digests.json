@@ -1,0 +1,10 @@
+{
+  "rootfs": "sha256:72afeaf904602c02b76a559cd250c18ea07a2f4148f3901d9272e1b522402719",
+  "lizard": "sha256:a3812c02aae512cc0334389e797a1405e7e7849fd0b8adb38888f40751694fa5",
+  "scc": "sha256:6cb156fc5667b1a97b654ff5e4c9c2c937870adbe00d7380b64a4a4c5bca2e0b",
+  "tree_sitter_core": "sha256:c39b3dc4262509c6618802dbbf483a16bce6d519b29b8a87dd7b4657f26ad5e1",
+  "grammars": {
+    "python": "sha256:71e26ef48ed435ea07866e68d1e07ecf84eb02cb7ac539e05e1c9cab19096478",
+    "typescript": "sha256:38dabe410e3cdfedbcceff6eb8daf9ef742b8c9fe6803487cf2b9182db46190a"
+  }
+}

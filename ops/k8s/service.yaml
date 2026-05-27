@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cce-api
+  namespace: cce
+  labels:
+    app: cce-api
+spec:
+  type: ClusterIP
+  selector:
+    app: cce-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

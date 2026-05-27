@@ -3,4 +3,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 cce-out/
+.coverage
+.hypothesis/
+.commandcode/
+.junie/
+.kiro/
 *.pyc
+.env

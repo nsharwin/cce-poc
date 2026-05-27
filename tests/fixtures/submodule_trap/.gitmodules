@@ -1,0 +1,7 @@
+[submodule "evil"]
+	path = evil
+	url = file:///etc/passwd
+	branch = main
+[submodule "evil2"]
+	path = evil2
+	url = ../../../../etc/shadow
