@@ -44,3 +44,28 @@ def test_body_size_limit_allows_small_body() -> None:
     )
     # Auth/validation may reject (401/400), but not 413.
     assert r.status_code != 413, r.text
+
+
+def test_metrics_requires_token(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.setenv("CCE_METRICS_TOKEN", "s3cret")
+    client = _build_test_client()
+    assert client.get("/metrics").status_code == 401
+    assert client.get("/metrics", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    ok = client.get("/metrics", headers={"Authorization": "Bearer s3cret"})
+    assert ok.status_code == 200
+    assert b"# HELP" in ok.content or b"# TYPE" in ok.content
+
+
+def test_metrics_503_without_token_in_prod(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "production")
+    monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
+    client = _build_test_client()
+    assert client.get("/metrics").status_code == 503
+
+
+def test_metrics_open_in_development(monkeypatch):
+    monkeypatch.setenv("CCE_ENV", "development")
+    monkeypatch.delenv("CCE_METRICS_TOKEN", raising=False)
+    client = _build_test_client()
+    assert client.get("/metrics").status_code == 200

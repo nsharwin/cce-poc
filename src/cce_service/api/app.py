@@ -8,7 +8,9 @@ every handler just forwards to ``ScoreService`` and translates
 
 from __future__ import annotations
 
+import hmac as _hmac
 import logging
+import os
 from typing import Any
 
 _body_limit_logger = logging.getLogger("cce_service.api.body_limit")
@@ -190,10 +192,21 @@ def build_app(service: ScoreService) -> Any:  # pragma: no cover - prod only
         return {"status": "ok"}
 
     @app.get("/metrics")
-    async def metrics() -> Any:
+    async def metrics(authorization: str | None = Header(default=None)) -> Any:
         from fastapi import Response
         from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+        expected = os.environ.get("CCE_METRICS_TOKEN")
+        env = os.environ.get("CCE_ENV", "development")
+        if not expected:
+            if env != "development":
+                raise HTTPException(status_code=503, detail="metrics endpoint not configured")
+        else:
+            provided = ""
+            if authorization and authorization.lower().startswith("bearer "):
+                provided = authorization.split(None, 1)[1]
+            if not _hmac.compare_digest(provided, expected):
+                raise HTTPException(status_code=401, detail="metrics auth required")
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     @app.post("/v1/scores")
