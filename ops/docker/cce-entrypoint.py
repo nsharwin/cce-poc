@@ -19,6 +19,10 @@ def _resolve_jailer_config(env: dict[str, str] | None = None) -> str | None:
     the config file does not exist.
 
     Raises RuntimeError when any placeholder remains unresolved.
+
+    The temp file is intentionally NOT cleaned up — this entrypoint is the
+    sole process in a single-shot container, so the file is reaped with the
+    container at shutdown.
     """
     env_map = env if env is not None else os.environ
     path = Path(env_map.get("CCE_JAILER_CONFIG", _DEFAULT_JAILER_CONFIG))

@@ -44,6 +44,23 @@ def test_missing_file_returns_none(tmp_path, mod):
     assert mod._resolve_jailer_config(env) is None
 
 
+def test_resolves_unbraced_placeholders(tmp_path, mod):
+    cfg = tmp_path / "jailer.json"
+    cfg.write_text('{"home": "$HOME"}\n', encoding="utf-8")
+    env = {"CCE_JAILER_CONFIG": str(cfg), "HOME": "/var/lib/cce"}
+    out = mod._resolve_jailer_config(env)
+    assert out is not None
+    assert "/var/lib/cce" in Path(out).read_text(encoding="utf-8")
+
+
+def test_detects_unresolved_unbraced_placeholders(tmp_path, mod):
+    cfg = tmp_path / "jailer.json"
+    cfg.write_text('{"x": "$NEVER_SET_VAR_42"}\n', encoding="utf-8")
+    env = {"CCE_JAILER_CONFIG": str(cfg)}
+    with pytest.raises(RuntimeError, match="NEVER_SET_VAR_42"):
+        mod._resolve_jailer_config(env)
+
+
 def test_correct_env_var_name_is_used(mod):
     """Regression guard: the entrypoint MUST read CCE_JAILER_CONFIG (not the
     historical typo CCE_JAOKER_CONFIG)."""
