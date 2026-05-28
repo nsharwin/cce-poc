@@ -1,0 +1,59 @@
+name: Init CCE fixture repo
+description: >
+  Optionally materialise (perf_100k only), resolve the fixture root path,
+  and git-init the repo deterministically. Outputs the resolved path so
+  callers can reference it without repeating the if/else.
+
+inputs:
+  fixture:
+    description: "Fixture name: simple_python | simple_typescript | perf_100k"
+    required: true
+  materialize:
+    description: >
+      Run the uv-based materialise step for perf_100k.
+      Set to 'false' when the caller handles materialise itself (e.g. container-isolation).
+    required: false
+    default: 'true'
+
+outputs:
+  path:
+    description: Resolved path to the fixture repo root
+    value: ${{ steps.resolve.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Materialise perf_100k fixture
+      if: inputs.materialize == 'true' && inputs.fixture == 'perf_100k'
+      shell: bash
+      run: |
+        mkdir -p tests/fixtures/perf_100k/repo
+        uv run python -m tests.fixtures.perf_100k.generate --out tests/fixtures/perf_100k/repo
+
+    - name: Resolve fixture root
+      id: resolve
+      shell: bash
+      run: |
+        if [ "${{ inputs.fixture }}" = "perf_100k" ]; then
+          echo "path=tests/fixtures/perf_100k/repo" >> "$GITHUB_OUTPUT"
+        else
+          echo "path=tests/fixtures/${{ inputs.fixture }}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Init fixture git repo (deterministic)
+      shell: bash
+      env:
+        GIT_AUTHOR_NAME: CCE Test
+        GIT_AUTHOR_EMAIL: cce@example.test
+        GIT_AUTHOR_DATE: "2026-01-01T00:00:00+0000"
+        GIT_COMMITTER_NAME: CCE Test
+        GIT_COMMITTER_EMAIL: cce@example.test
+        GIT_COMMITTER_DATE: "2026-01-01T00:00:00+0000"
+      run: |
+        cd "${{ steps.resolve.outputs.path }}"
+        git init -q --initial-branch=main
+        git config user.email "cce@example.test"
+        git config user.name "CCE Test"
+        git add .
+        git commit -q -m "fixture"
+        echo "Fixture HEAD: $(git rev-parse HEAD)"
