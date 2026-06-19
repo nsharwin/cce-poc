@@ -24,8 +24,8 @@ import hashlib
 import json
 import logging
 import os
+import threading
 import time
-import urllib.request
 from collections.abc import Iterable
 
 from cce_service.auth.jwt import AuthError, Principal
@@ -93,25 +93,42 @@ def _jwk_thumbprint(jwk: dict[str, object]) -> str:
 
 
 class _JwksCache:
-    """Fetches JWKS from a URI and caches it for ``ttl_seconds``."""
+    """Fetches JWKS from a URI, caches the keyset for ``ttl_seconds``.
+
+    A single ``httpx.Client`` is shared for all refreshes so TCP connections
+    are pooled across calls rather than re-established on every TTL expiry.
+    A threading lock prevents concurrent refreshes when multiple threads call
+    ``get()`` simultaneously after the TTL lapses.
+    """
 
     def __init__(self, jwks_uri: str, ttl_seconds: int = 300) -> None:
         self._uri = jwks_uri
         self._ttl = ttl_seconds
         self._fetched_at: float = 0.0
         self._keys: dict[str, dict[str, object]] = {}
+        self._lock = threading.Lock()
+        # Imported lazily so the core package stays importable without httpx.
+        try:
+            import httpx
+
+            self._client: object = httpx.Client(timeout=10)
+        except ImportError:
+            self._client = None
 
     def get(self, kid: str) -> dict[str, object] | None:
         self._maybe_refresh()
         return self._keys.get(kid)
 
     def _maybe_refresh(self) -> None:
-        now = time.monotonic()
-        if now - self._fetched_at < self._ttl:
+        # Fast path: check without the lock first.
+        if time.monotonic() - self._fetched_at < self._ttl:
             return
-        _logger.info("jwks.fetch uri=%s", self._uri)
-        with urllib.request.urlopen(self._uri, timeout=10) as resp:
-            body = json.load(resp)
+        # Slow path: only one thread refreshes at a time.
+        with self._lock:
+            if time.monotonic() - self._fetched_at < self._ttl:
+                return  # another thread already refreshed
+            _logger.info("jwks.fetch uri=%s", self._uri)
+            body = self._fetch()
         jwks: list[dict[str, object]] = body.get("keys", [])
         new_keys: dict[str, dict[str, object]] = {}
         for jwk in jwks:
@@ -122,8 +139,19 @@ class _JwksCache:
                 # Fall back to thumbprint-based lookup when kid is absent.
                 new_keys[_jwk_thumbprint(jwk)] = jwk
         self._keys = new_keys
-        self._fetched_at = now
+        self._fetched_at = time.monotonic()
         _logger.info("jwks.cached count=%d", len(self._keys))
+
+    def _fetch(self) -> dict[str, object]:
+        if self._client is not None:
+            resp = self._client.get(self._uri)  # type: ignore[union-attr]
+            resp.raise_for_status()
+            return resp.json()
+        # Fallback when httpx is not installed (dev/test without cce-service extras).
+        import urllib.request
+
+        with urllib.request.urlopen(self._uri, timeout=10) as resp:
+            return json.load(resp)
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +185,9 @@ def _verify_es256(signing_input: bytes, signature: bytes, jwk: dict[str, object]
     y_bytes = _b64url_decode(str(jwk["y"]))
     x_int = int.from_bytes(x_bytes, "big")
     y_int = int.from_bytes(y_bytes, "big")
-    public_key = ec.EllipticCurvePublicNumbers(
-        x_int, y_int, ec.SECP256R1()
-    ).public_key(default_backend())
+    public_key = ec.EllipticCurvePublicNumbers(x_int, y_int, ec.SECP256R1()).public_key(
+        default_backend()
+    )
     try:
         public_key.verify(
             signature,

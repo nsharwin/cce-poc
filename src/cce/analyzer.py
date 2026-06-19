@@ -184,12 +184,17 @@ def analyse_repo(
 
 
 def _iter_source_files(repo_path: Path) -> list[Path]:
-    paths: list[Path] = []
-    for path in repo_path.rglob("*"):
-        if any(part in _SKIP_DIRS for part in path.parts):
-            continue
-        if path.is_file() and path.suffix in _SOURCE_SUFFIXES:
-            paths.append(path)
+    # Glob only the specific extensions we handle rather than walking everything.
+    # rglob("*") on a large repo with non-source assets (data, fixtures, images)
+    # visits every inode before filtering, which dominates wall time and I/O.
+    candidates: set[Path] = set()
+    for pattern in ("**/*.py", "**/*.ts", "**/*.tsx"):
+        candidates.update(repo_path.glob(pattern))
+    paths = [
+        p
+        for p in candidates
+        if p.is_file() and not any(part in _SKIP_DIRS for part in p.relative_to(repo_path).parts)
+    ]
     return sorted(paths, key=lambda item: item.relative_to(repo_path).as_posix())
 
 
